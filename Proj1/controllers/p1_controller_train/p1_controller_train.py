@@ -1,0 +1,54 @@
+import sys
+import os
+
+# Add the parent 'controllers' directory to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from p1_util.evolution_manager import Evolution_Manager
+
+
+# Simulation parameters
+    # Webots
+TIME_STEP_MULTIPLIER = 6.4
+EVALUATION_TIME = 100  # Simulated seconds per individual
+
+    # Evolutionary
+        # Init
+GENERATIONS_CONVERGE_STOP = 300
+POPULATION_SIZE = 10
+
+        # Selection
+PARENTS_KEEP = 3
+
+        # Crossover
+INPUT = 5
+HIDDEN = 4
+OUTPUT = 2
+GENOME_SIZE = (1 + INPUT) * HIDDEN  + (HIDDEN + 1) * OUTPUT
+
+        # Mutation
+MUTATION_RATE = 0.5
+MUTATION_ALTER = 0.17
+    
+    # Movement
+BLIND_MARKOV_ASSUMPTION = 0
+
+# Main evolutionary loop
+def main():
+
+    # Run the evolutionary algorithm
+    controller = Evolution_Manager(timestep_multiplier = TIME_STEP_MULTIPLIER)
+    controller.load_train_params(generation_converge_stop = GENERATIONS_CONVERGE_STOP,
+                                   population_size = POPULATION_SIZE,
+                                   selection_number = PARENTS_KEEP,
+                                   parents_number = (POPULATION_SIZE - PARENTS_KEEP) * 2,
+                                   mutation_rate = MUTATION_RATE,
+                                   mutation_alter_rate = MUTATION_ALTER,
+                                   blind_markov_assumption = BLIND_MARKOV_ASSUMPTION, 
+                                   evaluation_time = EVALUATION_TIME)
+
+    controller.train_all()
+    controller.reset_state()
+
+if __name__ == "__main__":
+    main()
