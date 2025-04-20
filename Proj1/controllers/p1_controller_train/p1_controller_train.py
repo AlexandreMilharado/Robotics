@@ -14,11 +14,11 @@ EVALUATION_TIME = 100  # Simulated seconds per individual
 
     # Evolutionary
         # Init
-GENERATIONS_CONVERGE_STOP = 300
+GENERATIONS_CONVERGE_STOP = 800
 POPULATION_SIZE = 10
 
         # Selection
-PARENTS_KEEP = 3
+PARENTS_KEEP = 5
 
         # Crossover
 INPUT = 5
@@ -46,6 +46,8 @@ def main():
                                    mutation_alter_rate = MUTATION_ALTER,
                                    blind_markov_assumption = BLIND_MARKOV_ASSUMPTION, 
                                    evaluation_time = EVALUATION_TIME)
+    
+    # controller.load_training()
 
     controller.train_all()
     controller.reset_state()

@@ -1,14 +1,17 @@
+import ast
 from math import sqrt
+import os
 import pickle
 import numpy as np
 import pandas as pd
 from controller import Supervisor
 from p1_util.robot_class import Agent
 from functools import partial
-from sklearn.decomposition import PCA
 
 
 np.random.seed(105946)
+MIN_VALUE_WEIGHT = -1
+MAX_VALUE_WEIGHT = 1
 
 def random_orientation():                                       # USELESS
     angle = np.random.uniform(0, 2 * np.pi)
@@ -24,11 +27,11 @@ def random_position(min_radius, max_radius, z):                 # USELESS
 class Individual:
     id_counter = 0
 
-    def __init__(self, id, weights):
+    def __init__(self, id, weights, fitness = 0, path = []):
         self.id = id
         self.weights = weights
-        self.fitness = 0
-        self.path = []
+        self.fitness = fitness
+        self.path = path
 
     def add_path(self, position):
         self.path.append(position)
@@ -43,6 +46,10 @@ class Individual:
             return sum(euclidean(p1, p2) for p1, p2 in zip(path1, path2)) / len(path1)
         
         return sum(path_distance(self.path, other.path) for other in population if other != self) / (len(population) - 1)
+
+    @classmethod
+    def set_id_counter(cls, number):
+        cls.id_counter = number
 
     @classmethod
     def create_individual(cls, weights):
@@ -73,10 +80,12 @@ class Evolution_Manager:
         self.mutation_rate = mutation_rate
         self.mutation_alter_rate = mutation_alter_rate
         self.blind_markov_assumption = blind_markov_assumption
+        self.generation_start_number = 0
 
 
     def reset_state(self):
         self.agent.reset()
+        self.supervisor.simulationResetPhysics()
         self.supervisor.step(self.timestep)
         self.supervisor.step(self.timestep)
 
@@ -86,11 +95,26 @@ class Evolution_Manager:
 
 
     def save_training(self):
-        pd.DataFrame(data=self.history, columns=["Gen Number", "ID", "Fitness", "Weights"]).to_csv("../p1_util/evolutionary.csv", index=False)
+        file_path = "../p1_util/evolutionary.csv"
+        header = not os.path.exists(file_path)
+        pd.DataFrame(data=self.history, columns=["Gen Number", "ID", "Fitness", "Weights"]).to_csv(file_path, mode='a', header=header, index=False)
 
     def save_best_individual(self):
         with open('../p1_util/best_individual.pkl', 'wb') as f:
             pickle.dump(self.sort_individuals()[0], f)
+
+    def load_training(self):
+        df = pd.read_csv('../p1_util/evolutionary.csv')
+        id_counter = df["ID"].max()
+        gen_number = df["Gen Number"].max()
+        rows = df.iloc[-len(self.individuals):]
+
+        individuals_rows = rows.apply(lambda row: Individual(int(row["ID"]), ast.literal_eval(row["Weights"]), float(row["Fitness"])), axis=1)
+        self.individuals = individuals_rows.tolist()
+
+        Individual.set_id_counter(id_counter)
+        self.generation_start_number = gen_number
+        
 
     def load_best_individual(cls):
         with open('../p1_util/best_individual.pkl', 'rb') as f:
@@ -99,64 +123,74 @@ class Evolution_Manager:
     def run_individual(self, individual):
         while not self.agent.collided():
             # Read Sensors
-            (left_sensor_value, right_sensor_value) = self.agent.get_ground_sensors_values()
-            s_e = self.agent.is_not_on_black_line(left_sensor_value)
-            s_d = self.agent.is_not_on_black_line(right_sensor_value)
+            sensors_inputs = self._read_sensors()
 
             # Control Motors
-            self.run_step(individual.weights, s_e, s_d)
+            self.run_step(individual.weights, sensors_inputs)
 
 
     def generate_weights(self, size):
-        return [np.random.uniform(-1, 1) for _ in range(size)]
+        return [np.random.uniform(MIN_VALUE_WEIGHT, MAX_VALUE_WEIGHT) for _ in range(size)]
 
-    def run_step(self, weights, s_e, s_d):
+    def run_step(self, weights, sensors_inputs):
         p_1_e, p_2_e, p_3_e, p_1_d, p_2_d, p_3_d = weights
+        s_e, s_d = sensors_inputs
 
         left_speed =  s_e * p_1_e + s_d * p_2_e + p_3_e
         right_speed = s_e * p_1_d + s_d * p_2_d + p_3_d
-        
-        self.agent.set_velocity_left_motor(left_speed)
-        self.agent.set_velocity_right_motor(right_speed)
 
+        self.agent.set_velocity_left_motor(left_speed, sensors_inputs)
+        self.agent.set_velocity_right_motor(right_speed, sensors_inputs)
+        
         self.supervisor.step(self.timestep)
 
+    def _read_sensors(self):
+        (left_sensor_value, right_sensor_value) = self.agent.get_ground_sensors_values()
+        return (self.agent.is_not_on_black_line(left_sensor_value),
+                self.agent.is_not_on_black_line(right_sensor_value))
+
+    def _run_train_simulation(self, individual):
+            def update_fitness_collision(fitness):
+                return fitness / (limit_timestep - timesteps + 1) 
+
+            def update_fitness(fitness):
+                penalize = np.sign(angular_velocity) != np.sign(self.agent.get_angular_velocity()) and self.agent.left_motor != self.agent.right_motor
+                return (fitness
+                        + int((not sensors_inputs[0]) + (not sensors_inputs[1])) * self.agent.get_average_velocity()
+                        - penalize * self.agent.get_max_velocity())
+        
+            self.reset_state()
+            fitness = 0
+            timesteps = 0
+            limit_timestep = (self.evaluation_time * 1000) / self.timestep
+            angular_velocity = self.agent.get_angular_velocity()
+
+            while (timesteps < limit_timestep and
+                    not self.agent.collided()):
+                
+                # Read Sensors
+                sensors_inputs  = self._read_sensors()
+
+                # Calculate Fitness
+                fitness = update_fitness(fitness)
+
+                # Control Motors
+                self.run_step(individual.weights, sensors_inputs)
+
+                # Update States
+                angular_velocity = self.agent.get_angular_velocity()
+                individual.add_path(self.supervisor.getSelf().getPosition()[:2])
+                timesteps += 1
+
+            individual.fitness = update_fitness_collision(fitness)
+    
     def train_one_individual(self, individual):
-        def update_fitness(fitness):
-            return (fitness
-                    + int((not actual_readings[0]) + (not actual_readings[1])) * self.agent.get_average_velocity())
-        
-        def update_fitness_collision(fitness):
-            return fitness / (limit_timestep - timesteps + 1)
-        
-        def read_sensors():
-            (left_sensor_value, right_sensor_value) = self.agent.get_ground_sensors_values()
-            return (self.agent.is_not_on_black_line(left_sensor_value),
-                    self.agent.is_not_on_black_line(right_sensor_value))
-        
-        self.reset_state()
-        fitness = 0
-        timesteps = 0
-        limit_timestep = (self.evaluation_time * 1000) / self.timestep
+        failed = True
 
-        while (timesteps < limit_timestep and
-                not self.agent.collided()):
-            
-            # Read Sensors
-            actual_readings = read_sensors()
+        while failed:
+            self._run_train_simulation(individual)
+            failed = len(individual.path) == 0
 
-            # Calculate Fitness
-            fitness = update_fitness(fitness)
-
-            # Control Motors
-            p_s_e, p_s_d = actual_readings
-            self.run_step(individual.weights, p_s_e, p_s_d)
-
-            # Update States
-            individual.add_path(self.supervisor.getSelf().getPosition()[:2])
-            timesteps += 1
-
-        individual.fitness = update_fitness_collision(fitness)
 
     def update_fitness_based_on_exploration(self):
         distances = []
@@ -170,7 +204,7 @@ class Evolution_Manager:
             individual.fitness += distances[i]
 
     def normalise_fitness(self):
-        dem = 9.53 * ((self.evaluation_time * 1000) / self.timestep) + 1
+        dem = 2 * 9.53 * ((self.evaluation_time * 1000) / self.timestep) + 1
         for individual in self.individuals:
             individual.fitness = individual.fitness / dem
 
@@ -194,7 +228,7 @@ class Evolution_Manager:
         survivors = sorted_individuals[:self.selection_number]
     
         # Crossover
-        children = self.crossover(partial(self.sus, sorted_individuals),
+        children = self.crossover(partial(self.sus, survivors),
                                 self.arithmetic_crossover,
                                 len(sorted_individuals) - self.selection_number)
         
@@ -213,16 +247,15 @@ class Evolution_Manager:
         
 
     def train_all(self):
-        generation_number = 0
-
-        while generation_number < self.generation_converge_stop:
+        generation_number = self.generation_start_number
+        generation_stop = self.generation_converge_stop + self.generation_start_number
+        while generation_number < generation_stop:
             survivors = self.train_one_generation(generation_number)
             
             # Updating new Individuals
             self.individuals = survivors
 
             generation_number += 1
-            
         self.save_training()
         self.save_best_individual()
 
@@ -244,7 +277,7 @@ class Evolution_Manager:
         return parents
     
     def arithmetic_crossover(self, parent1, parent2):
-        alpha = np.random.uniform(0.5, 0.9)
+        alpha = np.random.uniform(-0.5, 1.5)
         beta = 1 - alpha
         weights = []
         for i in range(6):
@@ -266,7 +299,7 @@ class Evolution_Manager:
         for i, w in enumerate(child.weights):
             if np.random.rand() < self.mutation_alter_rate:
                 random_value = np.random.normal(w, 0.5)
-                while random_value < -1 or random_value > 1:
+                while random_value < MIN_VALUE_WEIGHT or random_value > MAX_VALUE_WEIGHT:
                     random_value = np.random.normal(w, 0.5)
                 child.weights[i] = random_value
 
