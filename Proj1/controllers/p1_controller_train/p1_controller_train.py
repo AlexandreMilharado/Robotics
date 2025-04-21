@@ -14,25 +14,16 @@ EVALUATION_TIME = 100  # Simulated seconds per individual
 
     # Evolutionary
         # Init
-GENERATIONS_CONVERGE_STOP = 800
+GENERATIONS_CONVERGE_STOP = 1000
 POPULATION_SIZE = 10
 
         # Selection
-PARENTS_KEEP = 5
-
-        # Crossover
-INPUT = 5
-HIDDEN = 4
-OUTPUT = 2
-GENOME_SIZE = (1 + INPUT) * HIDDEN  + (HIDDEN + 1) * OUTPUT
+PARENTS_KEEP = 2
 
         # Mutation
-MUTATION_RATE = 0.5
-MUTATION_ALTER = 0.17
+MUTATION_RATE = 0.5   # 1 in 2 New Individuals
+MUTATION_ALTER = 0.17 # 1 in 6 Genes
     
-    # Movement
-BLIND_MARKOV_ASSUMPTION = 0
-
 # Main evolutionary loop
 def main():
 
@@ -44,10 +35,9 @@ def main():
                                    parents_number = (POPULATION_SIZE - PARENTS_KEEP) * 2,
                                    mutation_rate = MUTATION_RATE,
                                    mutation_alter_rate = MUTATION_ALTER,
-                                   blind_markov_assumption = BLIND_MARKOV_ASSUMPTION, 
                                    evaluation_time = EVALUATION_TIME)
     
-    # controller.load_training()
+    controller.load_training()
 
     controller.train_all()
     controller.reset_state()

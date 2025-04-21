@@ -8,10 +8,24 @@ from controller import Supervisor
 from p1_util.robot_class import Agent
 from functools import partial
 
-
+# Random
 np.random.seed(105946)
+
+# Span of Universe
 MIN_VALUE_WEIGHT = -1
 MAX_VALUE_WEIGHT = 1
+
+# Crossover
+CROSSOVER_ARITHMETIC_MIN = -0.5
+CROSSOVER_ARITHMETIC_MAX = 1.5
+
+# Mutation
+MUTATION_VARIANCE = MAX_VALUE_WEIGHT / 2
+
+# Individuals History
+INDIVIDUALS_HISTORY_PATH = "../p1_util/evolutionary.csv"
+BEST_INDIVIDUAL_PATH = "../p1_util/best_individual.pkl"
+
 
 def random_orientation():                                       # USELESS
     angle = np.random.uniform(0, 2 * np.pi)
@@ -71,7 +85,7 @@ class Evolution_Manager:
         self.agent : Agent = Agent(self.supervisor, self.timestep)
         self.history = []
 
-    def load_train_params(self, generation_converge_stop, population_size, selection_number, parents_number, mutation_rate, mutation_alter_rate, blind_markov_assumption, evaluation_time):
+    def load_train_params(self, generation_converge_stop, population_size, selection_number, parents_number, mutation_rate, mutation_alter_rate, evaluation_time):
         self.individuals = [Individual.create_individual(self.generate_weights(6)) for _ in range(population_size)]
         self.generation_converge_stop = generation_converge_stop
         self.evaluation_time = evaluation_time
@@ -79,7 +93,6 @@ class Evolution_Manager:
         self.parents_number = parents_number
         self.mutation_rate = mutation_rate
         self.mutation_alter_rate = mutation_alter_rate
-        self.blind_markov_assumption = blind_markov_assumption
         self.generation_start_number = 0
 
 
@@ -95,18 +108,18 @@ class Evolution_Manager:
 
 
     def save_training(self):
-        file_path = "../p1_util/evolutionary.csv"
+        file_path = INDIVIDUALS_HISTORY_PATH
         header = not os.path.exists(file_path)
         pd.DataFrame(data=self.history, columns=["Gen Number", "ID", "Fitness", "Weights"]).to_csv(file_path, mode='a', header=header, index=False)
 
     def save_best_individual(self):
-        with open('../p1_util/best_individual.pkl', 'wb') as f:
+        with open(BEST_INDIVIDUAL_PATH, 'wb') as f:
             pickle.dump(self.sort_individuals()[0], f)
 
     def load_training(self):
-        df = pd.read_csv('../p1_util/evolutionary.csv')
-        id_counter = df["ID"].max()
-        gen_number = df["Gen Number"].max()
+        df = pd.read_csv(INDIVIDUALS_HISTORY_PATH)
+        id_counter = df["ID"].max() + 1
+        gen_number = df["Gen Number"].max() + 1
         rows = df.iloc[-len(self.individuals):]
 
         individuals_rows = rows.apply(lambda row: Individual(int(row["ID"]), ast.literal_eval(row["Weights"]), float(row["Fitness"])), axis=1)
@@ -117,7 +130,7 @@ class Evolution_Manager:
         
 
     def load_best_individual(cls):
-        with open('../p1_util/best_individual.pkl', 'rb') as f:
+        with open(BEST_INDIVIDUAL_PATH, 'rb') as f:
             return pickle.load(f)
         
     def run_individual(self, individual):
@@ -158,11 +171,12 @@ class Evolution_Manager:
                 return (fitness
                         + int((not sensors_inputs[0]) + (not sensors_inputs[1])) * self.agent.get_average_velocity()
                         - penalize * self.agent.get_max_velocity())
+            
         
             self.reset_state()
             fitness = 0
             timesteps = 0
-            limit_timestep = (self.evaluation_time * 1000) / self.timestep
+            limit_timestep = int((self.evaluation_time * 1000) / self.timestep + 0.5)
             angular_velocity = self.agent.get_angular_velocity()
 
             while (timesteps < limit_timestep and
@@ -204,9 +218,10 @@ class Evolution_Manager:
             individual.fitness += distances[i]
 
     def normalise_fitness(self):
-        dem = 2 * 9.53 * ((self.evaluation_time * 1000) / self.timestep) + 1
+        dem = 2 * 9.53 * int((self.evaluation_time * 1000) / self.timestep + 0.5) + 1
         for individual in self.individuals:
             individual.fitness = individual.fitness / dem
+
 
     def train_one_generation(self, gen_number):
         # Reset Paths
@@ -277,11 +292,11 @@ class Evolution_Manager:
         return parents
     
     def arithmetic_crossover(self, parent1, parent2):
-        alpha = np.random.uniform(-0.5, 1.5)
+        alpha = np.random.uniform(CROSSOVER_ARITHMETIC_MIN, CROSSOVER_ARITHMETIC_MAX)
         beta = 1 - alpha
         weights = []
         for i in range(6):
-            weights.append(parent1.weights[i] * alpha + parent2.weights[i] * beta)
+            weights.append(max(min(parent1.weights[i] * alpha + parent2.weights[i] * beta, MAX_VALUE_WEIGHT), MIN_VALUE_WEIGHT))
         return Individual.create_individual(weights) 
 
     def crossover(self, selection_parents, crossover_aux, children_number):
@@ -298,9 +313,9 @@ class Evolution_Manager:
     def mutate_alter_value(self, child):
         for i, w in enumerate(child.weights):
             if np.random.rand() < self.mutation_alter_rate:
-                random_value = np.random.normal(w, 0.5)
+                random_value = np.random.normal(w, MUTATION_VARIANCE)
                 while random_value < MIN_VALUE_WEIGHT or random_value > MAX_VALUE_WEIGHT:
-                    random_value = np.random.normal(w, 0.5)
+                    random_value = np.random.normal(w, MUTATION_VARIANCE)
                 child.weights[i] = random_value
 
     def mutation(self, mutation_aux, children):

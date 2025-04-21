@@ -106,8 +106,8 @@ class Agent:
     def _limit_velocity(self, velocity, weights):
         return self.get_max_velocity() / (sum(weights) + 1) * velocity
 
-    def set_velocity_left_motor(self, velocity, weights = [3]):
+    def set_velocity_left_motor(self, velocity, weights):
         self.left_motor.setVelocity(self._limit_velocity(velocity, weights))
 
-    def set_velocity_right_motor(self, velocity, weights = [3]):
+    def set_velocity_right_motor(self, velocity, weights):
         self.right_motor.setVelocity(self._limit_velocity(velocity, weights))
