@@ -1,57 +1,29 @@
 import numpy as np
-from controller import DistanceSensor, Motor
+from controller import Supervisor, DistanceSensor, Motor
 
 WHEEL_DISTANCE = 0.112            # Distance between wheels in Thymio Robot
 
 class Agent:
 # Inits
-    def __init__(self, supervisor, timestep):
-        """
-        Class constructor.
+    def __init__(self, SENSOR_TYPE, timestep_multiplier):
+        if SENSOR_TYPE == "SIMPLE":
+            self.read_sensors = self.get_ground_sensors_values
+            self.run_step = self._run_step_braiternberg
+        else:
+            self.read_sensors = self.get_frontal_sensors_values
+        
+        self.supervisor : Supervisor = Supervisor()
+        self.timestep = int(self.supervisor.getBasicTimeStep() * timestep_multiplier)
+    
+        self.rotation = self.supervisor.getFromDef("ROBOT").getField("rotation")             
+        self.translation = self.supervisor.getFromDef("ROBOT").getField("translation")
 
-        Parameters
-        ----------
-        supervisor : Supervisor
-            The simulation supervisor.
-        timestep : int
-            The simulation timestep.
+        self._init_sensors()
+        self._init_motors()
 
-        Attributes
-        ----------
-        rotation : Field
-            The supervisor field for the robot's rotation.
-        translation : Field
-            The supervisor field for the robot's translation.
-        sensors : list
-            List of distance sensors.
-        left_motor : Motor
-            The left wheel motor.
-        right_motor : Motor
-            The right wheel motor.
-        """
+        self._init_black_line()
 
-        self.rotation = supervisor.getFromDef("ROBOT").getField("rotation")             
-        self.translation = supervisor.getFromDef("ROBOT").getField("translation")
-
-        self._init_sensors(supervisor, timestep)
-        self._init_motors(supervisor)
-
-    def _init_sensors(self, supervisor, timestep):
-        """
-        Inits the distance sensors.
-
-        Parameters
-        ----------
-        supervisor : Supervisor
-            The simulation supervisor.
-        timestep : int
-            The simulation timestep.
-
-        Attributes
-        ----------
-        sensors : list
-            List of distance sensors.
-        """
+    def _init_sensors(self):
         sensors = ["prox.horizontal.0", "prox.horizontal.1", # Left
                    "prox.horizontal.2",                      # Middle
                    "prox.horizontal.3", "prox.horizontal.4", # Right
@@ -61,36 +33,39 @@ class Agent:
         self.sensors : list[DistanceSensor] = []
 
         for sensor_name in sensors:
-            sensor : DistanceSensor = supervisor.getDevice(sensor_name)
-            sensor.enable(timestep)
+            sensor : DistanceSensor = self.supervisor.getDevice(sensor_name)
+            sensor.enable(self.timestep)
             self.sensors.append(sensor)
 
-    def _init_motors(self, supervisor):
-        """
-        Initializes the motors by retrieving them from the supervisor, setting their positions 
-        to infinity to enable velocity control, and initializing their velocities to zero.
-
-        Parameters
-        ----------
-        supervisor : Supervisor
-            The simulation supervisor used to access the robot's devices.
-
-        Attributes
-        ----------
-        left_motor : Motor
-            The left motor of the robot.
-        right_motor : Motor
-            The right motor of the robot.
-        """
-        self.left_motor : Motor = supervisor.getDevice('motor.left')      
+    def _init_motors(self):
+        self.left_motor : Motor = self.supervisor.getDevice('motor.left')      
         self.left_motor.setPosition(float('inf'))
         
-        self.right_motor : Motor = supervisor.getDevice('motor.right')
+        self.right_motor : Motor = self.supervisor.getDevice('motor.right')
         self.right_motor.setPosition(float('inf'))
 
         self.left_motor.setVelocity(0)
         self.right_motor.setVelocity(0)
 
+    def _init_black_line(self):
+        self.black_line = []
+        children = self.supervisor.getRoot().getField('children')
+
+        for i in range(children.getCount()):
+            node = children.getMFNode(i)
+            if node.getTypeName() == "Solid" and "BlackArea" in node.getName():
+                translation_field = node.getField("translation")
+                translation = translation_field.getSFVec3f()
+
+                children_field = node.getField("children")
+                for i in range(children_field.getCount()):
+                    child_node = children_field.getMFNode(i)
+                    if child_node.getTypeName() == "Shape":
+                        geometry_node = child_node.getField("geometry").getSFNode()
+                        if geometry_node and geometry_node.getTypeName() == "Box":
+                            size = geometry_node.getField("size").getSFVec3f()
+                
+                self.black_line.append((translation, size))
 
 # Readings
     def get_frontal_sensors_values(self):
@@ -113,7 +88,7 @@ class Agent:
         tuple
             A tuple containing the values of the left and right ground sensors.
         """
-        return (self.sensors[-2].getValue(), self.sensors[-1].getValue())
+        return (self.is_not_on_black_line(self.sensors[-2].getValue()), self.is_not_on_black_line(self.sensors[-1].getValue()))
 
     def _get_horizontal_sensors(self):
         """
@@ -163,6 +138,17 @@ class Agent:
         return self.left_motor.getMaxVelocity()
 
 # State
+    def is_on_black_line_map(self):
+        current_position = self.supervisor.getSelf().getPosition()[:2]
+        for translation, size in self.black_line:
+            translation = translation[:2]
+            size = [size[0]/2, size[1]/2]
+            if (current_position[0] < (translation[0] + size[0]) and current_position[0] > (translation[0] - size[0]) and
+                current_position[1] < (translation[1] + size[1]) and current_position[1] > (translation[1] - size[1])):
+                return True
+            
+        return False
+
     def collided(self, max_limit = 4300):
         """
         Checks if any of the horizontal sensors have detected an obstacle.
@@ -216,7 +202,7 @@ class Agent:
         """
         return [0, 0, 1, np.random.uniform(0, 2 * np.pi)], [0, 0, 0]
 
-    def reset(self, rotation = [0, 0, 1, 2], translation = [0, 0, 0]):
+    def reset_params(self, rotation = [0, 0, 1, 2], translation = [0, 0, 0]):
         """
         Resets the robot's rotation and translation to the given values.
 
@@ -233,6 +219,13 @@ class Agent:
         self.translation.setSFVec3f(translation)
         self._reset_velocity()
 
+    def reset(self):
+        rotation, translation = self.get_rotation_translation()
+        self.reset_params(rotation, translation)
+
+        self.supervisor.simulationResetPhysics()
+        self.supervisor.step(self.timestep)
+        self.supervisor.step(self.timestep)
 
 # Velocity
     def _limit_velocity(self, velocity, weights):
@@ -278,3 +271,39 @@ class Agent:
             The weights of the sensors.
         """
         self.right_motor.setVelocity(self._limit_velocity(velocity, weights))
+
+# Movement
+    def run_individual(self, individual):
+        # Read Sensors
+        sensors_inputs = self.read_sensors()
+
+        # Control Motors
+        self.run_step(individual.weights, sensors_inputs)
+
+    def _run_step_braiternberg(self, weights, sensors_inputs):
+        p_1_e, p_2_e, p_3_e, p_1_d, p_2_d, p_3_d = weights
+        s_e, s_d = sensors_inputs
+
+        left_speed =  s_e * p_1_e + s_d * p_2_e + p_3_e
+        right_speed = s_e * p_1_d + s_d * p_2_d + p_3_d
+
+        self.set_velocity_left_motor(left_speed, sensors_inputs)
+        self.set_velocity_right_motor(right_speed, sensors_inputs)
+
+        self.supervisor.step(self.timestep)
+
+    def train_individual(self, individual, limit_timestep, calculate_enviroment):
+        timesteps = 0 
+        while (timesteps < limit_timestep and
+                not self.agent.collided()):
+            # Read Sensors
+            sensors_inputs = self.read_sensors()
+
+            # Control Motors
+            self.run_step(individual.weights, sensors_inputs)
+
+            calculate_enviroment()
+
+            timesteps += 1
+
+        return timesteps
