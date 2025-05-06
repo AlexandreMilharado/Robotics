@@ -17,7 +17,7 @@ SENSOR_TYPE = "SIMPLE"
 INDIVIDUAL_TYPE = "BRAITENBERG"
 
         # Init
-GENERATION_LIMIT = 3                            # N Generations
+GENERATION_LIMIT = 500                          # N Generations
 POPULATION_SIZE = 20                            # N Individuals per Generation
 
         # Selection
@@ -47,7 +47,7 @@ def main():
                                     mutation_rate = MUTATION_RATE,
                                     mutation_alter_rate = MUTATION_ALTER)
     
-    # controller.load_training()
+    controller.load_training()
     
 
     controller.train_all()

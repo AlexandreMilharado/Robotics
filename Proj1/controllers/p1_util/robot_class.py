@@ -1,7 +1,13 @@
+from math import cos, sin
 import numpy as np
 from controller import Supervisor, DistanceSensor, Motor
 
 WHEEL_DISTANCE = 0.112            # Distance between wheels in Thymio Robot
+
+class SimulationEndedError(Exception):
+    """Custom exception to indicate that the simulation has ended."""
+    pass
+
 
 class Agent:
 # Inits
@@ -53,9 +59,11 @@ class Agent:
 
         for i in range(children.getCount()):
             node = children.getMFNode(i)
-            if node.getTypeName() == "Solid" and "BlackArea" in node.getName():
-                translation_field = node.getField("translation")
-                translation = translation_field.getSFVec3f()
+            field = node.getField("name")
+            if field and node.getTypeName() == "Solid" and "BlackArea" in field.getSFString():
+                translation = node.getField("translation").getSFVec3f()
+                rotation = node.getField("rotation").getSFVec3f()
+                rotation = rotation[-2] * rotation[-1]
 
                 children_field = node.getField("children")
                 for i in range(children_field.getCount()):
@@ -65,7 +73,7 @@ class Agent:
                         if geometry_node and geometry_node.getTypeName() == "Box":
                             size = geometry_node.getField("size").getSFVec3f()
                 
-                self.black_line.append((translation, size))
+                self.black_line.append((translation, size, rotation))
 
 # Readings
     def get_frontal_sensors_values(self):
@@ -139,12 +147,23 @@ class Agent:
 
 # State
     def is_on_black_line_map(self):
+        def is_point_in_rotated_rectangle(px, py, cx, cy, width, height, angle):
+            tx, ty = px - cx, py - cy
+
+            cos_a = cos(-angle)
+            sin_a = sin(-angle)
+
+            rx = tx * cos_a - ty * sin_a
+            ry = tx * sin_a + ty * cos_a
+
+            return abs(rx) <= width / 2 and abs(ry) <= height / 2
+
         current_position = self.supervisor.getSelf().getPosition()[:2]
-        for translation, size in self.black_line:
-            translation = translation[:2]
-            size = [size[0]/2, size[1]/2]
-            if (current_position[0] < (translation[0] + size[0]) and current_position[0] > (translation[0] - size[0]) and
-                current_position[1] < (translation[1] + size[1]) and current_position[1] > (translation[1] - size[1])):
+        for translation, size, angle in self.black_line:
+            if is_point_in_rotated_rectangle(current_position[0], current_position[1],
+                                            translation[0], translation[1],
+                                            size[0], size[1],
+                                            angle):
                 return True
             
         return False
@@ -164,7 +183,7 @@ class Agent:
         bool
             True if any horizontal sensor's value exceeds the max_limit, indicating a collision. False otherwise.
         """
-        return any(value > max_limit for value in self._get_horizontal_sensors())
+        return any(value >= max_limit for value in self._get_horizontal_sensors())
 
     def is_not_on_black_line(self, ground_sensor_value):
         """
@@ -224,8 +243,7 @@ class Agent:
         self.reset_params(rotation, translation)
 
         self.supervisor.simulationResetPhysics()
-        self.supervisor.step(self.timestep)
-        self.supervisor.step(self.timestep)
+
 
 # Velocity
     def _limit_velocity(self, velocity, weights):
@@ -289,21 +307,3 @@ class Agent:
 
         self.set_velocity_left_motor(left_speed, sensors_inputs)
         self.set_velocity_right_motor(right_speed, sensors_inputs)
-
-        self.supervisor.step(self.timestep)
-
-    def train_individual(self, individual, limit_timestep, calculate_enviroment):
-        timesteps = 0 
-        while (timesteps < limit_timestep and
-                not self.agent.collided()):
-            # Read Sensors
-            sensors_inputs = self.read_sensors()
-
-            # Control Motors
-            self.run_step(individual.weights, sensors_inputs)
-
-            calculate_enviroment()
-
-            timesteps += 1
-
-        return timesteps

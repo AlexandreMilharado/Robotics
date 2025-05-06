@@ -106,6 +106,22 @@ class Individual:
         self.fitness = 0
 
 # Getters
+    def euclidean(self, p1, p2):
+        return sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+    
+    def distance_from_all(self, population):
+        def path_distance(path1, path2):
+            return sum(self.euclidean(p1, p2) for p1, p2 in zip(path1, path2)) / len(path1)
+        
+        return sum(path_distance(self.path, other.path) for other in population if other != self) / (len(population) - 1)
+
+    def position_diff(self):
+        diff = 0
+        for i in range(len(self.path) - 1):
+            diff += self.euclidean(self.path[i + 1], self.path[i])
+
+        return diff / (9.53 * len(self.path))
+
     def dna_diff(self, other):
         """
         Calculates the average absolute difference between the weights of this individual and the weights of another individual.
@@ -139,6 +155,12 @@ class Individual:
         return sorted(individuals,
                     key=lambda individual: individual.fitness,
                     reverse=True)
+    
+    @classmethod
+    def sort_individuals_by_id(cls, individuals):
+        return sorted(individuals,
+                    key=lambda individual: individual.id,
+                    reverse=False)
     
     @classmethod
     def sort_individuals_by_fitness_list(cls, individuals, fitness_l):

@@ -31,7 +31,6 @@ class History_Individuals:
         
         _add_weights(weights)
         self.id_counter += 1
-
         return Individual(gen_number, self.id_counter, weights)
 
 
@@ -39,17 +38,29 @@ class History_Individuals:
         self.individuals_to_save.append(copy.deepcopy(individual))
 
     def add_all(self, individuals):
-        for individual in individuals:
+        sorted_individuals = Individual.sort_individuals_by_id(individuals)
+        for individual in sorted_individuals:
             self.add(individual)
 
 
     def save_history(self):
         def _convert_history_to_save_format():
             return [individual.to_list() for individual in self.individuals_to_save]
+        
+        def get_index_next_gen(individuals, max_gen):
+            for i in range(len(individuals)):
+                if individuals[i][0] == max_gen:
+                    return i
+            return None
 
         file_path = self.INDIVIDUALS_HISTORY_PATH 
         header = not os.path.exists(file_path)
-        pd.DataFrame(data=_convert_history_to_save_format(),
+        data = _convert_history_to_save_format()
+
+        if not header:
+            df = pd.read_csv(self.INDIVIDUALS_HISTORY_PATH)
+            data = data[get_index_next_gen(data, df["Gen Number"].max() + 1):]
+        pd.DataFrame(data=data,
                     columns=["Gen Number", "ID", "Fitness", "Weights", "Diversity", "Black Line Percentage"]
                     ).to_csv(file_path, mode='a', header=header, index=False)
         

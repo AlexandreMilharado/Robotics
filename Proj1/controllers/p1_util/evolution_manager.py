@@ -4,42 +4,48 @@ import pandas as pd
 from p1_util.Individual import Individual
 from p1_util.History_Individuals import History_Individuals
 
-from p1_util.robot_class import Agent
+from p1_util.robot_class import Agent, SimulationEndedError
 from functools import partial
-
 
 np.random.seed(105946)                                                  # Seed for Reproducibility
 
 BRAITENBERG = { "MAX_VALUE_WEIGHT": 1,                                  # Maximum Value for Gene
                 "MIN_VALUE_WEIGHT" : -1,                                # Minimum Value for Gene
                 "GENES_NUMBER" : 6,                                     # Number of Genes
+                "REWARD_BLACK_LINE": 2,                                 # Reward on Black Line
+                "REWARD_DIFFERENT_PATH": 0.1,                           # Reward on difference between paths
+                "PENALTY_DIFFERENT_POSITION": 0,                      # Penalty on same positions taken by Robot
+                "PENALTY_WIGGLY_MOV": 2,                                # Penalty on Wiggle Movement
                 "PENALTY_DNA": 0.15,                                    # Penalty for DNA Difference
-                "REWARD_DNA_GEN": 0.15,                                 # Reward for DNA Difference
                 "CROSSOVER_ARITHMETIC_MAX": 1.5,                        # Max Value for Alpha
                 "CROSSOVER_ARITHMETIC_MIN": -0.5,                       # Min Value for Alpha
                 "MUTATION_VARIANCE": 0.5,                               # Variance for Mutation
                }
 
 
-NETWORKS_SIMPLE = { "MAX_VALUE_WEIGHT": 1,                               # Maximum Value for Gene
-                    "MIN_VALUE_WEIGHT" : -1,                             # Minimum Value for Gene
-                    "GENES_NUMBER" : 6,                                  # Number of Genes
-                    "PENALTY_DNA": 0.15,                                 # Penalty for DNA Difference
-                    "CROSSOVER_ARITHMETIC_MAX": 1.5,                     # Max Value for Alpha
-                    "CROSSOVER_ARITHMETIC_MIN": -0.5,                    # Min Value for Alpha
-                    "MUTATION_VARIANCE": 0.5,                            # Variance for Mutation
-                 }
+NETWORKS_SIMPLE = { "MAX_VALUE_WEIGHT": 1,                              # Maximum Value for Gene
+                    "MIN_VALUE_WEIGHT" : -1,                            # Minimum Value for Gene
+                    "GENES_NUMBER" : 6,                                 # Number of Genes
+                    "PENALTY_DNA": 0.15,                                # Penalty for DNA Difference
+                    "REWARD_DNA_GEN": 0.05,                             # Reward for DNA Difference
+                    "CROSSOVER_ARITHMETIC_MAX": 1.5,                    # Max Value for Alpha
+                    "CROSSOVER_ARITHMETIC_MIN": -0.5,                   # Min Value for Alpha
+                    "MUTATION_VARIANCE": 0.5,                           # Variance for Mutation
+                }
 
-NETWORKS_COMPLEX = {"MAX_VALUE_WEIGHT": 1,                               # Maximum Value for Gene
-                    "MIN_VALUE_WEIGHT" : -1,                             # Minimum Value for Gene
-                    "GENES_NUMBER" : 6,                                  # Number of Genes
-                    "PENALTY_DNA": 0.15,                                 # Penalty for DNA Difference
-                    "CROSSOVER_ARITHMETIC_MAX": 1.5,                     # Max Value for Alpha
-                    "CROSSOVER_ARITHMETIC_MIN": -0.5,                    # Min Value for Alpha
-                    "MUTATION_VARIANCE": 0.5,                            # Variance for Mutation
-                    }
+NETWORKS_COMPLEX = { "MAX_VALUE_WEIGHT": 1,                             # Maximum Value for Gene
+                    "MIN_VALUE_WEIGHT" : -1,                            # Minimum Value for Gene
+                    "GENES_NUMBER" : 6,                                 # Number of Genes
+                    "PENALTY_DNA": 0.15,                                # Penalty for DNA Difference
+                    "REWARD_DNA_GEN": 0.05,                             # Reward for DNA Difference
+                    "CROSSOVER_ARITHMETIC_MAX": 1.5,                    # Max Value for Alpha
+                    "CROSSOVER_ARITHMETIC_MIN": -0.5,                   # Min Value for Alpha
+                    "MUTATION_VARIANCE": 0.5,                           # Variance for Mutation
+                }
 
-class Evolution_Manager:
+class Evolution_Manager():
+
+# Init and Loading
     def __init__(self, SENSOR_TYPE, TIMESTEP_MULTIPLIER, INDIVIDUALS_HISTORY_PATH, BEST_INDIVIDUAL_PATH):
         self.agent : Agent = Agent(SENSOR_TYPE, TIMESTEP_MULTIPLIER)
         self.history = History_Individuals(INDIVIDUALS_HISTORY_PATH = INDIVIDUALS_HISTORY_PATH,
@@ -64,22 +70,42 @@ class Evolution_Manager:
         self.mutation_alter_rate = mutation_alter_rate
 
         self.current_gen_individuals = [self._generate_individual() for _ in range(population_size)]
-        pass
 
     def load_training(self):
-        df = pd.read_csv(self.history.INDIVIDUALS_HISTORY_PATH)
-        rows = df.iloc[-len(self.current_gen_individuals):]
+        try:
+            df = pd.read_csv(self.history.INDIVIDUALS_HISTORY_PATH)
+            rows = df.iloc[-len(self.current_gen_individuals):]
 
-        individuals_rows = rows.apply(lambda row: Individual(int(row["Gen Number"]),
-                                                             int(row["ID"]),
-                                                             ast.literal_eval(row["Weights"])), axis=1)
-        self.current_gen_individuals = individuals_rows.tolist()
+            individuals_rows = rows.apply(lambda row: Individual(int(row["Gen Number"]),
+                                                                int(row["ID"]),
+                                                                ast.literal_eval(row["Weights"])), axis=1)
+            self.current_gen_individuals = individuals_rows.tolist()
 
-        self.generation_start_number = df["Gen Number"].max() + 1
+            self.generation_start_number = df["Gen Number"].max() + 1
+
+            for individual in self.current_gen_individuals:
+                individual.gen_number = self.generation_start_number
+
+            self.history.load_history()
+        except FileNotFoundError:
+            print("No file found --- Creating a new one")
+
+    def load_best_individual(self):
+        return self.history.load_best_individual()
 
     def reset(self):
         self.agent.reset()
 
+        for _ in range(3):
+            if self.agent.supervisor.step(self.agent.timestep) == -1:
+                raise SimulationEndedError("Step failed after reset")
+            
+    def run_individual(self, individual):
+        while self.agent.supervisor.step(self.agent.timestep) != -1 and not self.agent.collided():
+            # Run 1 Step
+            self.agent.run_individual(individual)
+
+# Evolucionary Functions
     def _generate_individual(self):
         def generate_weights(size):
             return [np.random.uniform(self.CONSTANT["MIN_VALUE_WEIGHT"], self.CONSTANT["MAX_VALUE_WEIGHT"]) for _ in range(size)]
@@ -176,19 +202,19 @@ class Evolution_Manager:
 
         return individual
     
-
+# Fitness Functions
     def start_fitness(self):
         return self.agent.get_max_velocity()
 
     def reward_fitness_on_black_line(self):
         sensors_readings =  self.agent.read_sensors()
-        return self.agent.get_average_velocity() * sum([int(not reading) for reading in sensors_readings])
+        return self.CONSTANT["REWARD_BLACK_LINE"] * self.agent.get_average_velocity() * sum([int(not reading) for reading in sensors_readings])
 
     def penalty_fitness_based_on_collision(self, fitness, limit_timestep, timesteps):
         return fitness / (limit_timestep - timesteps + 1) 
     
     def penalty_wiggly_movement(self, angular_velocity):
-        return -self.agent.get_max_velocity() * (np.sign(angular_velocity) != np.sign(self.agent.get_angular_velocity()) and
+        return -self.CONSTANT["PENALTY_WIGGLY_MOV"] * self.agent.get_max_velocity() * (np.sign(angular_velocity) != np.sign(self.agent.get_angular_velocity()) and
                                                     self.agent.left_motor != self.agent.right_motor)
                 
     def penalty_fitness_based_on_best_dna(self, sorted_individuals, penalties):
@@ -200,32 +226,31 @@ class Evolution_Manager:
 
         return penalties
     
-    def reward_fitness_based_on_generational_dna(self, individuals, fitness):
-        def calculate_mean_weights():
-            mean_weigths = [0 for _ in range(len(individuals[0].weights))]
-            for individual in individuals:
-                for i in range(len(individuals[0].weights)):
-                    mean_weigths[i] += individual.weights[i]
+    def reward_fitness_on_different_pathing_from(self, sorted_individuals, rewards):
+        distances = []
+        for individual in sorted_individuals:
+            distances.append(individual.distance_from_all(sorted_individuals))
 
-            for i in range(len(mean_weigths)):
-                mean_weigths[i] /= len(individuals[0].weights)
+        max_value = max(distances)
+        distances = [distance / max_value for distance in distances]
 
-            return mean_weigths
-        
-        mean_weigths = calculate_mean_weights()
-        max_difference = (self.CONSTANT["MAX_VALUE_WEIGHT"] - self.CONSTANT["MIN_VALUE_WEIGHT"]) * len(mean_weigths)
-        
-        for i, individual in enumerate(individuals):
-            acc = 0
-            for j in range(len(mean_weigths)):
-                acc += abs(mean_weigths[j] - individual.weights[j])
+        for i in range(len(sorted_individuals)):
+            index, fitness = rewards[i]
+            fitness += self.CONSTANT["REWARD_DIFFERENT_PATH"] * distances[i]
+            rewards[i] = (index, fitness)
 
-            (index, value) = fitness[i]
-            value += self.CONSTANT["REWARD_DNA_GEN"] * (acc / max_difference)
-            fitness[i] = (index, value)
+        return rewards
+    
+    def penalty_fitness_on_same_position(self, sorted_individuals, penalties):
+        for i, individual in enumerate(sorted_individuals):
+            index, fitness = penalties[i]
+            fitness -= self.CONSTANT["PENALTY_DIFFERENT_POSITION"] * fitness * individual.position_diff()
+            penalties[i] = (index, fitness)
 
-        return fitness
+        return penalties
+ 
 
+# Stats World
     def set_diversity(self, individuals):
         gene_matrix = np.array([individual.weights for individual in individuals])
         diversity = np.mean(np.std(gene_matrix, axis=0))
@@ -233,9 +258,10 @@ class Evolution_Manager:
             individual.set_diversity(diversity)
 
     def set_line_percentage(self, individuals, line_percentage):
-        for individual in individuals:
-            individual.set_line_percentage(line_percentage)
+        for i, individual in enumerate(individuals):
+            individual.set_line_percentage(line_percentage[i][1])
 
+# Training Details
     def train_individual(self, individual):
         def update_fitness(fitness, angular_velocity):
             return (fitness +
@@ -246,18 +272,15 @@ class Evolution_Manager:
             return fitness / MAX_FITNESS_VALUE
 
         def update_stats(stats):
-            stats["line_percentage"] += int(self.agent.is_on_black_line_map())
+            stats["line_touches"] += int(self.agent.is_on_black_line_map())
 
         angular_velocity = self.agent.get_angular_velocity()
         limit_timestep = int((self.evaluation_time * 1000) / self.agent.timestep + 0.5)
         MAX_FITNESS_VALUE = 2 * 9.53 * limit_timestep
         fitness = self.start_fitness()
-        stats = {"line_percentage": 0}
+        stats = {"line_touches": 0}
         timesteps = 0 
-
-        while (timesteps < limit_timestep and
-                not self.agent.collided()):
-
+        while self.agent.supervisor.step(self.agent.timestep) != -1 and timesteps < limit_timestep and not self.agent.collided():
             # Run 1 Step
             self.agent.run_individual(individual)
 
@@ -268,21 +291,28 @@ class Evolution_Manager:
             angular_velocity = self.agent.get_angular_velocity()
             individual.add_path(self.agent.supervisor.getSelf().getPosition()[:2])
             update_stats(stats)
-
             timesteps += 1
+
+        if timesteps < limit_timestep and not self.agent.collided():
+            raise SimulationEndedError()
+        
         # Fitness Calculation
         fitness = self.penalty_fitness_based_on_collision(fitness, limit_timestep, timesteps)
         fitness = normalise_fitness(fitness)
 
-        return {"FITNESS": fitness, "LINE_PERCENTAGE": stats["line_percentage"]/limit_timestep}
+        return {"FITNESS": fitness, "LINE_PERCENTAGE": stats["line_touches"]/limit_timestep}
 
     def train_one_individual(self, individual):
         failed = True
         result = {}
         while failed:
-            self.agent.reset()
-            result = self.train_individual(individual)
-            failed = len(individual.path) == 0
+            try:
+                self.reset()
+                result = self.train_individual(individual)
+                failed = False
+            except SimulationEndedError:
+                print("HERE")
+                pass
         return result
 
     def train_one_generation(self, gen_number):
@@ -298,17 +328,22 @@ class Evolution_Manager:
             fitness.append((i, result["FITNESS"]))
             line_percentage.append((i, result["LINE_PERCENTAGE"]))
 
+
         # Fitness Calculation
         individuals = Individual.sort_individuals_by_fitness_list(self.current_gen_individuals, fitness)
         fitness = self.penalty_fitness_based_on_best_dna(individuals, fitness)
-        fitness = self.reward_fitness_based_on_generational_dna(individuals, fitness)
+        fitness = self.reward_fitness_on_different_pathing_from(individuals, fitness)
+        fitness = self.penalty_fitness_on_same_position(individuals, fitness)
 
         # Setting Individuals Fitness
         for i in range(len(individuals)):
             individuals[i].fitness = fitness[i][1]
+            
         
-        # Setting Line Percentage
+        # Setting Generation Stats and adding to history
         self.set_line_percentage(individuals, line_percentage)
+        self.set_diversity(individuals)
+        self.history.add_all(individuals)
 
         # Sort Best Individuals
         self.current_gen_individuals = Individual.sort_individuals(individuals)
@@ -321,25 +356,29 @@ class Evolution_Manager:
                                 self.arithmetic_crossover,
                                 len(self.current_gen_individuals) - self.selection_number)
         
+
         # Mutation
         self.mutation(self.mutate_alter_value, children_weights)
 
-        # Removing Duplicates
-        children = []
-        for weights in children_weights:
-            children.append(self.removing_duplicates(gen_number, weights)) 
 
         # Performance Log
         print(f"---GEN {gen_number}---")
         print(f"BEST INDIVIDUAL: {self.current_gen_individuals[0]}")
 
+        # Updating Generation Number
+        for survivor in survivors:
+            survivor.gen_number = gen_number + 1
+        
+        # Removing Duplicates
+        children = []
+        for weights in children_weights:
+            children.append(self.removing_duplicates(gen_number + 1, weights))
+        
+
         # Updating Individuals
         survivors.extend(children)
-        self.set_diversity(self.current_gen_individuals)
-
-        # Add Individuals to History
-        self.history.add_all(self.current_gen_individuals)
-
+        self.current_gen_individuals = survivors
+        
 
     def train_all(self):
         generation_number = self.generation_start_number
@@ -350,5 +389,5 @@ class Evolution_Manager:
             
             generation_number += 1
     
-        self.history.save_history()
-        self.history.save_best_individual()
+            self.history.save_history()
+            self.history.save_best_individual()
