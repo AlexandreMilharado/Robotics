@@ -13,22 +13,6 @@ MIN_VALUE_WEIGHT = -1                                       # Minimum Value for 
 # Crossover
 GENES_NUMBER = 6                                            # Number of Genes
 
-class SimpleNet(torch.nn.Module):
-    def __init__(self):        
-        super().__init__() 
-        self.FC = nn.Sequential(
-            nn.Linear(SIMPLE_NET_INPUT, SIMPLE_NET_HIDDEN),
-            nn.Tanh(),  
-            nn.Linear(SIMPLE_NET_HIDDEN, SIMPLE_NET_HIDDEN), 
-            nn.Tanh(), 
-            nn.Linear(SIMPLE_NET_HIDDEN, SIMPLE_NET_OUTPUT),  
-            nn.Tanh()
-        )
-
-    def forward(self, x): 
-        x = self.FC(x)
-        return x
-
 
 class Individual:                       
     id_counter = 0

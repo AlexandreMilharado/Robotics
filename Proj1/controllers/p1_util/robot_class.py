@@ -4,6 +4,13 @@ from controller import Supervisor, DistanceSensor, Motor
 
 WHEEL_DISTANCE = 0.112            # Distance between wheels in Thymio Robot
 
+OBSTACLES_NUMBER = 5 
+OBSTACLES_MIN_RADIUS = 0.5
+OBSTACLES_MAX_RADIUS = 1.4
+
+RESET_MIN_RADIUS = 0
+RESET_MAX_RADIUS = 1.5
+
 class SimulationEndedError(Exception):
     """Custom exception to indicate that the simulation has ended."""
     pass
@@ -11,12 +18,24 @@ class SimulationEndedError(Exception):
 
 class Agent:
 # Inits
-    def __init__(self, SENSOR_TYPE, timestep_multiplier):
-        if SENSOR_TYPE == "SIMPLE":
-            self.read_sensors = self.get_ground_sensors_values
-            self.run_step = self._run_step_braiternberg
-        else:
-            self.read_sensors = self.get_frontal_sensors_values
+    def __init__(self, INDIVIDUAL_TYPE, timestep_multiplier):
+        match INDIVIDUAL_TYPE:
+            case "BRAITENBERG": 
+                self.read_sensors = self._get_ground_sensors_values
+                self.run_step = self._run_step_braiternberg
+                self._limit_velocity = self._limit_velocity_braitenberg
+                self.reset = self._reset_without_obstacles
+            case "NETWORKS_SIMPLE":
+                self.read_sensors = self._get_ground_sensors_values
+                self.run_step = self._run_step_net
+                self._limit_velocity = self._limit_velocity_net
+                self.reset = self._reset_without_obstacles
+            case _:
+                self.read_sensors = self._get_frontal_and_ground_sensors_values
+                self.run_step = self._run_step_net
+                self._limit_velocity = self._limit_velocity_net
+                self.reset = self._reset_with_obstacles
+                self._init_boxes()
         
         self.supervisor : Supervisor = Supervisor()
         self.timestep = int(self.supervisor.getBasicTimeStep() * timestep_multiplier)
@@ -28,6 +47,7 @@ class Agent:
         self._init_motors()
 
         self._init_black_line()
+
 
     def _init_sensors(self):
         sensors = ["prox.horizontal.0", "prox.horizontal.1", # Left
@@ -54,7 +74,7 @@ class Agent:
         self.right_motor.setVelocity(0)
 
     def _init_black_line(self):
-        self.black_line = []
+        self._black_line = []
         children = self.supervisor.getRoot().getField('children')
 
         for i in range(children.getCount()):
@@ -73,7 +93,49 @@ class Agent:
                         if geometry_node and geometry_node.getTypeName() == "Box":
                             size = geometry_node.getField("size").getSFVec3f()
                 
-                self.black_line.append((translation, size, rotation))
+                self._black_line.append((translation, size, rotation))
+
+    def _init_boxes(self):
+        root = self.supervisor.getRoot()
+        children_field = root.getField('children')
+        self.obstacles = []
+
+        for i in range(OBSTACLES_NUMBER):
+            position = self._random_position(OBSTACLES_MIN_RADIUS, OBSTACLES_MAX_RADIUS, 0)
+            orientation = self.random_orientation()
+            length = np.random.uniform(0.05, 0.2)
+            width = np.random.uniform(0.05, 0.2)
+            
+            box_string = f"""
+            DEF WHITE_BOX_{i} Solid {{
+            translation {position[0]} {position[1]} {position[2]}
+            rotation {orientation[0]} {orientation[1]} {orientation[2]} {orientation[3]}
+            physics Physics {{
+                density 1000.0
+            }}
+            children [
+                Shape {{
+                appearance Appearance {{
+                    material Material {{
+                    diffuseColor 1 1 1
+                    }}
+                }}
+                geometry Box {{
+                    size {length} {width} 0.2  
+                }}
+                }}
+            ]
+            boundingObject Box {{
+                size {length} {width} 0.2  
+            }}
+            }}
+            """
+            
+            children_field.importMFNodeFromString(-1, box_string)
+
+            self.obstacles.append(self.supervisor.getFromDef(f"WHITE_BOX_{i}"))
+
+            
 
 # Readings
     def get_frontal_sensors_values(self):
@@ -87,7 +149,7 @@ class Agent:
         """
         return (self.sensors[0].getValue(), self.sensors[2].getValue(), self.sensors[4].getValue())
 
-    def get_ground_sensors_values(self):
+    def _get_ground_sensors_values(self):
         """
         Returns the values of the left and right ground sensors.
 
@@ -97,6 +159,9 @@ class Agent:
             A tuple containing the values of the left and right ground sensors.
         """
         return (self.is_not_on_black_line(self.sensors[-2].getValue()), self.is_not_on_black_line(self.sensors[-1].getValue()))
+    
+    def _get_frontal_and_ground_sensors_values(self):
+        return self.get_frontal_sensors_values() + self._get_ground_sensors_values()
 
     def _get_horizontal_sensors(self):
         """
@@ -146,6 +211,19 @@ class Agent:
         return self.left_motor.getMaxVelocity()
 
 # State
+    # Utils
+    def _random_orientation(self):                                      
+        angle = np.random.uniform(0, 2 * np.pi)
+        return [0, 0, 1, angle]
+
+    def _random_position(self, min_radius, max_radius, z):                
+        radius = np.random.uniform(min_radius, max_radius)
+        angle = self._random_orientation()
+        x = radius * np.cos(angle[3])
+        y = radius * np.sin(angle[3])
+        return [x, y, z]
+    
+    # Black Line Reward
     def is_on_black_line_map(self):
         def is_point_in_rotated_rectangle(px, py, cx, cy, width, height, angle):
             tx, ty = px - cx, py - cy
@@ -159,7 +237,7 @@ class Agent:
             return abs(rx) <= width / 2 and abs(ry) <= height / 2
 
         current_position = self.supervisor.getSelf().getPosition()[:2]
-        for translation, size, angle in self.black_line:
+        for translation, size, angle in self._black_line:
             if is_point_in_rotated_rectangle(current_position[0], current_position[1],
                                             translation[0], translation[1],
                                             size[0], size[1],
@@ -167,23 +245,6 @@ class Agent:
                 return True
             
         return False
-
-    def collided(self, max_limit = 4300):
-        """
-        Checks if any of the horizontal sensors have detected an obstacle.
-
-        Parameters
-        ----------
-        max_limit : int, optional
-            The threshold value for sensor detection. If any sensor's value exceeds this limit, a collision is detected.
-            Default is 4300.
-
-        Returns
-        -------
-        bool
-            True if any horizontal sensor's value exceeds the max_limit, indicating a collision. False otherwise.
-        """
-        return any(value >= max_limit for value in self._get_horizontal_sensors())
 
     def is_not_on_black_line(self, ground_sensor_value):
         """
@@ -201,6 +262,29 @@ class Agent:
       """
         return (ground_sensor_value / 1023 - .6) / .2 > .3
     
+    # Colliding
+    def collided(self, max_limit = 4300):
+        """
+        Checks if any of the horizontal sensors have detected an obstacle.
+
+        Parameters
+        ----------
+        max_limit : int, optional
+            The threshold value for sensor detection. If any sensor's value exceeds this limit, a collision is detected.
+            Default is 4300.
+
+        Returns
+        -------
+        bool
+            True if any horizontal sensor's value exceeds the max_limit, indicating a collision. False otherwise.
+        """
+        return any(value >= max_limit for value in self._get_horizontal_sensors())
+
+    # 
+    def _get_rotation_translation(self):
+        return self._random_orientation(), [0, 0, 0]
+
+    # Reset
     def _reset_velocity(self):
         """
         Resets the velocity of the left and right motors to 0.
@@ -210,18 +294,7 @@ class Agent:
         self.left_motor.setVelocity(0)
         self.right_motor.setVelocity(0)
 
-    def get_rotation_translation(self):
-        """
-        Returns a random rotation and translation for the robot.
-
-        Returns
-        -------
-        tuple
-            A tuple containing a random rotation and translation for the robot.
-        """
-        return [0, 0, 1, np.random.uniform(0, 2 * np.pi)], [0, 0, 0]
-
-    def reset_params(self, rotation = [0, 0, 1, 2], translation = [0, 0, 0]):
+    def _reset_params(self, rotation = [0, 0, 1, 2], translation = [0, 0, 0]):
         """
         Resets the robot's rotation and translation to the given values.
 
@@ -237,16 +310,25 @@ class Agent:
         self.rotation.setSFRotation(rotation)
         self.translation.setSFVec3f(translation)
         self._reset_velocity()
+    
+    def _reset_boxes(self):
+        for obs in self.obstacles:
+            obs.getField("rotation").setSFRotation(self._random_orientation())
+            obs.getField("translation").setSFVec3f(self._random_position(OBSTACLES_MIN_RADIUS, OBSTACLES_MAX_RADIUS, 0))
 
-    def reset(self):
-        rotation, translation = self.get_rotation_translation()
-        self.reset_params(rotation, translation)
+    def _reset_with_obstacles(self):
+        self._reset_params(self._random_orientation(), self._random_position(RESET_MIN_RADIUS, RESET_MAX_RADIUS))
+        self._reset_boxes()
+        self.supervisor.simulationResetPhysics()
 
+    def _reset_without_obstacles(self):
+        rotation, translation = self._get_rotation_translation()
+        self._reset_params(rotation, translation)
         self.supervisor.simulationResetPhysics()
 
 
 # Velocity
-    def _limit_velocity(self, velocity, weights):
+    def _limit_velocity_braitenberg(self, velocity, weights):
         """
         Limits the velocity of the motor to ensure that it doesn't exceed the maximum velocity.
 
@@ -263,6 +345,9 @@ class Agent:
             The limited velocity.
         """
         return self.get_max_velocity() / (sum(weights) + 1) * velocity
+    
+    def _limit_velocity_net(self, velocity, weights):
+        return self.get_max_velocity() * max(min(velocity, 1), -1)
 
     def set_velocity_left_motor(self, velocity, weights):
         """
@@ -296,14 +381,20 @@ class Agent:
         sensors_inputs = self.read_sensors()
 
         # Control Motors
-        self.run_step(individual.weights, sensors_inputs)
+        self.run_step(individual, sensors_inputs)
 
-    def _run_step_braiternberg(self, weights, sensors_inputs):
-        p_1_e, p_2_e, p_3_e, p_1_d, p_2_d, p_3_d = weights
+    def _run_step_braiternberg(self, individual, sensors_inputs):
+        p_1_e, p_2_e, p_3_e, p_1_d, p_2_d, p_3_d = individual.weights
         s_e, s_d = sensors_inputs
 
         left_speed =  s_e * p_1_e + s_d * p_2_e + p_3_e
         right_speed = s_e * p_1_d + s_d * p_2_d + p_3_d
+
+        self.set_velocity_left_motor(left_speed, sensors_inputs)
+        self.set_velocity_right_motor(right_speed, sensors_inputs)
+
+    def _run_step_net(self, individual, sensors_inputs):
+        left_speed, right_speed = individual.forward(sensors_inputs)
 
         self.set_velocity_left_motor(left_speed, sensors_inputs)
         self.set_velocity_right_motor(right_speed, sensors_inputs)

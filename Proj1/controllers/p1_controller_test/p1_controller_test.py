@@ -15,8 +15,7 @@ EVALUATION_TIME = 100                           # Simulated seconds per individu
 
     # Evolutionary
         # Model
-SENSOR_TYPE = "SIMPLE"
-INDIVIDUAL_TYPE = "BRAITENBERG"
+INDIVIDUAL_TYPE = "NETWORKS_SIMPLE"
 
 # Saving and Loading
 INDIVIDUALS_HISTORY_PATH = "../p1_util/evolutionary.csv"    # Path for Individuals History
@@ -26,14 +25,14 @@ BEST_INDIVIDUAL_PATH = "../p1_util/best_individual.pkl"     # Path for Best Indi
 def main():
 
     # Run the evolutionary algorithm
-    controller = Evolution_Manager( SENSOR_TYPE = SENSOR_TYPE,
+    controller = Evolution_Manager( INDIVIDUAL_TYPE = INDIVIDUAL_TYPE,
                                     TIMESTEP_MULTIPLIER = TIME_STEP_MULTIPLIER,
                                     INDIVIDUALS_HISTORY_PATH = INDIVIDUALS_HISTORY_PATH,
                                     BEST_INDIVIDUAL_PATH = BEST_INDIVIDUAL_PATH)
 
 
     individual = controller.load_best_individual()
-    # individual = Individual(1,[0.9862291581572298, -0.24582283053137227, 0.6494684887575346, -0.2674412457506431, 0.982340210870061, 0.9195890514638527])
+    # individual = Individual(1, 1,[0.9862291581572298, -0.24582283053137227, 0.6494684887575346, -0.2674412457506431, 0.982340210870061, 0.9195890514638527])
 
     controller.run_individual(individual)
 

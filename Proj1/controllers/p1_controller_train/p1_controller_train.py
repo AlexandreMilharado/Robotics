@@ -13,8 +13,7 @@ EVALUATION_TIME = 100                           # Simulated seconds per individu
 
     # Evolutionary
         # Model
-SENSOR_TYPE = "SIMPLE"
-INDIVIDUAL_TYPE = "BRAITENBERG"
+INDIVIDUAL_TYPE = "BRAITENBERG"            # "BRAITENBERG" | "NETWORKS_SIMPLE" | "NETWORKS_COMPLEX"
 
         # Init
 GENERATION_LIMIT = 500                          # N Generations
@@ -34,13 +33,12 @@ BEST_INDIVIDUAL_PATH = "../p1_util/best_individual.pkl"     # Path for Best Indi
 def main():
 
     # Run the evolutionary algorithm
-    controller = Evolution_Manager( SENSOR_TYPE = SENSOR_TYPE,
+    controller = Evolution_Manager( INDIVIDUAL_TYPE = INDIVIDUAL_TYPE,
                                     TIMESTEP_MULTIPLIER = TIME_STEP_MULTIPLIER,
                                     INDIVIDUALS_HISTORY_PATH = INDIVIDUALS_HISTORY_PATH,
                                     BEST_INDIVIDUAL_PATH = BEST_INDIVIDUAL_PATH)
     
-    controller.load_train_params(   INDIVIDUAL_TYPE = INDIVIDUAL_TYPE,
-                                    population_size = POPULATION_SIZE,
+    controller.load_train_params(   population_size = POPULATION_SIZE,
                                     generation_limit = GENERATION_LIMIT,
                                     evaluation_time = EVALUATION_TIME,
                                     selection_number = SELECTION_NUMBER,

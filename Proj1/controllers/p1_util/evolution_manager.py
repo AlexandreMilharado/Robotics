@@ -14,9 +14,9 @@ BRAITENBERG = { "MAX_VALUE_WEIGHT": 1,                                  # Maximu
                 "GENES_NUMBER" : 6,                                     # Number of Genes
                 "REWARD_BLACK_LINE": 2,                                 # Reward on Black Line
                 "REWARD_DIFFERENT_PATH": 0.1,                           # Reward on difference between paths
-                "PENALTY_DIFFERENT_POSITION": 0,                      # Penalty on same positions taken by Robot
+                "PENALTY_DIFFERENT_POSITION": 0.1,                      # Penalty on same positions taken by Robot
                 "PENALTY_WIGGLY_MOV": 2,                                # Penalty on Wiggle Movement
-                "PENALTY_DNA": 0.15,                                    # Penalty for DNA Difference
+                "PENALTY_DNA": 0,                                    # Penalty for DNA Difference
                 "CROSSOVER_ARITHMETIC_MAX": 1.5,                        # Max Value for Alpha
                 "CROSSOVER_ARITHMETIC_MIN": -0.5,                       # Min Value for Alpha
                 "MUTATION_VARIANCE": 0.5,                               # Variance for Mutation
@@ -25,19 +25,25 @@ BRAITENBERG = { "MAX_VALUE_WEIGHT": 1,                                  # Maximu
 
 NETWORKS_SIMPLE = { "MAX_VALUE_WEIGHT": 1,                              # Maximum Value for Gene
                     "MIN_VALUE_WEIGHT" : -1,                            # Minimum Value for Gene
-                    "GENES_NUMBER" : 6,                                 # Number of Genes
+                    "GENES_NUMBER" : 22,                                # Number of Genes
+                    "REWARD_BLACK_LINE": 2,                             # Reward on Black Line
+                    "REWARD_DIFFERENT_PATH": 0.1,                       # Reward on difference between paths
+                    "PENALTY_DIFFERENT_POSITION": 0.1,                  # Penalty on same positions taken by Robot
+                    "PENALTY_WIGGLY_MOV": 2,                            # Penalty on Wiggle Movement
                     "PENALTY_DNA": 0.15,                                # Penalty for DNA Difference
-                    "REWARD_DNA_GEN": 0.05,                             # Reward for DNA Difference
                     "CROSSOVER_ARITHMETIC_MAX": 1.5,                    # Max Value for Alpha
                     "CROSSOVER_ARITHMETIC_MIN": -0.5,                   # Min Value for Alpha
                     "MUTATION_VARIANCE": 0.5,                           # Variance for Mutation
                 }
 
-NETWORKS_COMPLEX = { "MAX_VALUE_WEIGHT": 1,                             # Maximum Value for Gene
+NETWORKS_COMPLEX = {"MAX_VALUE_WEIGHT": 1,                              # Maximum Value for Gene
                     "MIN_VALUE_WEIGHT" : -1,                            # Minimum Value for Gene
-                    "GENES_NUMBER" : 6,                                 # Number of Genes
+                    "GENES_NUMBER" : 434,                               # Number of Genes
+                    "REWARD_BLACK_LINE": 2,                             # Reward on Black Line
+                    "REWARD_DIFFERENT_PATH": 0.1,                       # Reward on difference between paths
+                    "PENALTY_DIFFERENT_POSITION": 0.1,                  # Penalty on same positions taken by Robot
+                    "PENALTY_WIGGLY_MOV": 2,                            # Penalty on Wiggle Movement
                     "PENALTY_DNA": 0.15,                                # Penalty for DNA Difference
-                    "REWARD_DNA_GEN": 0.05,                             # Reward for DNA Difference
                     "CROSSOVER_ARITHMETIC_MAX": 1.5,                    # Max Value for Alpha
                     "CROSSOVER_ARITHMETIC_MIN": -0.5,                   # Min Value for Alpha
                     "MUTATION_VARIANCE": 0.5,                           # Variance for Mutation
@@ -46,19 +52,20 @@ NETWORKS_COMPLEX = { "MAX_VALUE_WEIGHT": 1,                             # Maximu
 class Evolution_Manager():
 
 # Init and Loading
-    def __init__(self, SENSOR_TYPE, TIMESTEP_MULTIPLIER, INDIVIDUALS_HISTORY_PATH, BEST_INDIVIDUAL_PATH):
-        self.agent : Agent = Agent(SENSOR_TYPE, TIMESTEP_MULTIPLIER)
+    def __init__(self, INDIVIDUAL_TYPE, TIMESTEP_MULTIPLIER, INDIVIDUALS_HISTORY_PATH, BEST_INDIVIDUAL_PATH):
+        self.agent : Agent = Agent(INDIVIDUAL_TYPE, TIMESTEP_MULTIPLIER)
         self.history = History_Individuals(INDIVIDUALS_HISTORY_PATH = INDIVIDUALS_HISTORY_PATH,
-                                        BEST_INDIVIDUAL_PATH = BEST_INDIVIDUAL_PATH)
+                                        BEST_INDIVIDUAL_PATH = BEST_INDIVIDUAL_PATH,
+                                        INDIVIDUAL_TYPE = INDIVIDUAL_TYPE)
+        match INDIVIDUAL_TYPE:
+            case "BRAITENBERG":
+                self.CONSTANT = BRAITENBERG
+            case "NETWORKS_SIMPLE":
+                self.CONSTANT = NETWORKS_SIMPLE
+            case _: 
+                self.CONSTANT = NETWORKS_COMPLEX
 
-    def load_train_params(self, INDIVIDUAL_TYPE, population_size, generation_limit, evaluation_time, selection_number, mutation_rate, mutation_alter_rate):
-        if INDIVIDUAL_TYPE == "BRAITENBERG":
-            self.CONSTANT = BRAITENBERG
-        elif INDIVIDUAL_TYPE == "NETWORKS_SIMPLE":
-            self.CONSTANT = NETWORKS_SIMPLE
-        else:
-            self.CONSTANT = NETWORKS_COMPLEX
-
+    def load_train_params(self, population_size, generation_limit, evaluation_time, selection_number, mutation_rate, mutation_alter_rate):
         self.generation_start_number = 0
         self.generation_limit = generation_limit
 
@@ -76,9 +83,9 @@ class Evolution_Manager():
             df = pd.read_csv(self.history.INDIVIDUALS_HISTORY_PATH)
             rows = df.iloc[-len(self.current_gen_individuals):]
 
-            individuals_rows = rows.apply(lambda row: Individual(int(row["Gen Number"]),
-                                                                int(row["ID"]),
-                                                                ast.literal_eval(row["Weights"])), axis=1)
+            individuals_rows = rows.apply(lambda row: self.history.create_individual_class( int(row["Gen Number"]),
+                                                                                            int(row["ID"]),
+                                                                                            ast.literal_eval(row["Weights"])), axis=1)
             self.current_gen_individuals = individuals_rows.tolist()
 
             self.generation_start_number = df["Gen Number"].max() + 1
@@ -112,7 +119,8 @@ class Evolution_Manager():
         
         individual = self.history.create_individual(self.generation_start_number, generate_weights(self.CONSTANT["GENES_NUMBER"]))
         while individual is None:
-            individual = Individual.create_individual(self.generation_start_number, generate_weights(self.CONSTANT["GENES_NUMBER"]))
+            individual = self.history.create_individual(self.generation_start_number, generate_weights(self.CONSTANT["GENES_NUMBER"]))
+
         return individual
     
     def sus(self, sorted_individuals):
@@ -154,6 +162,7 @@ class Evolution_Manager():
             weights.append(max(min(parent1.weights[i] * alpha + parent2.weights[i] * beta,
                                    self.CONSTANT["MAX_VALUE_WEIGHT"]),
                                 self.CONSTANT["MIN_VALUE_WEIGHT"]))
+
         return weights
 
     def crossover(self, selection_parents, crossover_aux, children_number):
