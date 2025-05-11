@@ -13,8 +13,6 @@ try:
     from stable_baselines3.common.callbacks import CheckpointCallback
     from sb3_contrib import RecurrentPPO
     from controller import Supervisor
-    from gym.envs import registry
-    from pprint import pprint
 
 except ImportError:
     sys.exit('Please make sure you have all dependencies installed.')
@@ -30,20 +28,23 @@ WHEEL_RADIUS = 0
 #
 class OpenAIGymEnvironment(Supervisor, gym.Env):
     
-    def __init__(self, max_episode_steps = 500):
+    def __init__(self, max_episode_steps = 3000):
+        
         super().__init__()
-        self.spec = gym.envs.register(
+
+        gym.register(
             id='WebotsEnv-v0',
-            entry_point='thymio_rl_controler.thymio_rl_controller:OpenAIGymEnvironment',
+            entry_point=OpenAIGymEnvironment,
             max_episode_steps=max_episode_steps
         )
+        self.spec = gym.spec('WebotsEnv-v0')
         self.__timestep = int(self.getBasicTimeStep())
 
         # Fill in according to the action space of Thymio
         # See: https://www.gymlibrary.dev/api/spaces/
         self.action_space = gym.spaces.Box(
-            low=np.array([0, 0, 0]),
-            high=np.array([1, 1, 9]),
+            low=np.array([-0.2, -3.571]),
+            high=np.array([0.2, 3.571]),
             dtype=np.float32)
 
         # Fill in according to Thymio's sensors
@@ -52,11 +53,31 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
             low=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]), 
             high=np.array([100, 100, 100, 100, 100, 100, 100, 1000, 1000]),
             dtype=np.float32)
-
-        self.state = self._get_obs() #Isto era None
         
         # Do all other required initializations
-        ...
+        self.sensors = [
+            super().getDevice('prox.horizontal.0'),
+            super().getDevice('prox.horizontal.1'),
+            super().getDevice('prox.horizontal.2'),
+            super().getDevice('prox.horizontal.3'),
+            super().getDevice('prox.horizontal.4'),
+            super().getDevice('prox.horizontal.5'),
+            super().getDevice('prox.horizontal.6'),
+            super().getDevice('prox.ground.0'),
+            super().getDevice('prox.ground.1')
+        ]
+
+        for sensor in self.sensors:
+            sensor.enable(self.__timestep)
+
+        self.left_motor = super().getDevice('motor.left')
+        self.right_motor = super().getDevice('motor.right')
+        self.left_motor.setPosition(float('inf'))
+        self.right_motor.setPosition(float('inf'))
+
+        self.__n = 0
+
+        self.reset()
 
 
     #
@@ -80,7 +101,10 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         init_state = self._get_obs()
         ...
 
-        return np.array(init_state).astype(np.float32), {}
+        # aditional info
+        info = self._get_info()
+
+        return np.array(init_state).astype(np.float32), info
 
 
     #
@@ -113,37 +137,28 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return self.state.astype(np.float32), reward, terminated, truncated, info
     
     def _get_obs(self):
-        return np.array([
-            self.getDevice('prox.horizontal.0'),
-            self.getDevice('prox.horizontal.1'),
-            self.getDevice('prox.horizontal.2'),
-            self.getDevice('prox.horizontal.3'),
-            self.getDevice('prox.horizontal.4'),
-            self.getDevice('prox.horizontal.5'),
-            self.getDevice('prox.horizontal.6'),
-            self.getDevice('prox.ground.0'),
-            self.getDevice('prox.ground.1')
-        ])
+        return np.array([sensor.getValue() for sensor in self.sensors])
     
     def _get_info(self):
         return {}
         ...
 
     def _set_velocities(self, action, wheel_radius=0.021, wheel_distance=0.095):
-        v_linear, v_angular, scale = action[0], action[1], action[2]
+        v_linear, v_angular = action[0], action[1]
 
-        v_left = ((2 * v_linear - v_angular * wheel_distance) / (2 * wheel_radius)) * scale
-        v_right = ((2 * v_linear + v_angular * wheel_distance) / (2 * wheel_radius)) * scale
+        v_left = (2 * v_linear - v_angular * wheel_distance) / (2 * wheel_radius)
+        v_right = (2 * v_linear + v_angular * wheel_distance) / (2 * wheel_radius)
         
-        self.getDevice('motor.left').setVelocity(v_left)
-        self.getDevice('motor.right').setVelocity(v_right)
+        self.left_motor.setVelocity(max(min(v_left, 9), -9))
+        self.right_motor.setVelocity(max(min(v_right, 9), -9))
 
     def _act(self):
         for i in range(10):
             super().step(self.__timestep)
 
     def _get_reward(self):
-        print(self.state)
+        return 0#TODO implement
+
         ...
 
     def _determine_terminated(self):
@@ -155,19 +170,18 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
 
 def main():
 
-    # Initializing environment
-    #gym.make('WebotsEnv-v0')
-
     # Create the environment to train / test the robot
     env = OpenAIGymEnvironment()
+
+    # Initializing environment
+    #env = gym.make('WebotsEnv-v0')
 
     # Code to train and save a model
     # For the PPO case, see how in Lab 7 code
     # For the RecurrentPPO case, consult its documentation
-    pprint(list(registry.keys()))
-    if ('WebotsEnv-v0' not in registry.keys()):
+    if ('WebotsEnv-v0' not in gym.registry):
         raise Exception('Environment not registered correctly')
-    model = RecurrentPPO("MlpLstmPolicy", "WebotsEnv-v0")
+    model = RecurrentPPO("MlpLstmPolicy", env, verbose=1)
     model.learn(5000)
     ...
 
