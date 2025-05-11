@@ -32,7 +32,7 @@ DEF ROBOT Thymio2 {
   hidden position_0_1 5.583916002781828e-16
   translation -3.863638293327698e-08 -4.698726670769593e-09 0.9999799321804731
   rotation 0.004752585103947183 0.0003023276245273692 0.9999886607021288 -3.0145230111133405
-  controller "real_thymio_interaction"
+  controller "thymio_rl_controller"
   window "thymio2"
   supervisor TRUE
 }

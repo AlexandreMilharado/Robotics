@@ -4,7 +4,7 @@ import os
 # Add the parent 'controllers' directory to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from p1_util.Evolution_Manager import Evolution_Manager
+from p1_util.evolution_manager import Evolution_Manager
 
 # Simulation parameters
     # Webots
