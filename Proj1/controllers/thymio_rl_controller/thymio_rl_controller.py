@@ -45,14 +45,14 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         self.action_space = gym.spaces.Box(
             low=np.array([-0.2, -3.571]),
             high=np.array([0.2, 3.571]),
-            dtype=np.float32)
+            dtype=np.float64)
 
         # Fill in according to Thymio's sensors
         # See: https://www.gymlibrary.dev/api/spaces/
         self.observation_space = gym.spaces.Box(
             low=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]), 
             high=np.array([100, 100, 100, 100, 100, 100, 100, 1000, 1000]),
-            dtype=np.float32)
+            dtype=np.float64)
         
         # Do all other required initializations
         self.sensors = [
@@ -72,10 +72,9 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
 
         self.left_motor = super().getDevice('motor.left')
         self.right_motor = super().getDevice('motor.right')
-        self.left_motor.setPosition(float('inf'))
-        self.right_motor.setPosition(float('inf'))
 
         self.__n = 0
+        self.__max_n = max_episode_steps
 
         self.reset()
 
@@ -84,10 +83,10 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
     # Reset the environment to an initial internal state, returning an initial observation and info.
     #
     def reset(self, seed=None, options=None):
+
         super().reset(seed=seed)
-        self.simulationReset()
-        self.simulationResetPhysics()
-        super().step(self.__timestep)
+
+        self._sim_reset()
 
         # initialize the sensors, reset the actuators, randomize the environment
         # See how in Lab 1 code
@@ -104,7 +103,7 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         # aditional info
         info = self._get_info()
 
-        return np.array(init_state).astype(np.float32), info
+        return np.array(init_state).astype(np.float64), info
 
 
     #
@@ -134,7 +133,7 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         # aditional info
         info = self._get_info()
 
-        return self.state.astype(np.float32), reward, terminated, truncated, info
+        return self.state.astype(np.float64), reward, terminated, truncated, info
     
     def _get_obs(self):
         return np.array([sensor.getValue() for sensor in self.sensors])
@@ -165,7 +164,26 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         ...
 
     def _determine_truncated(self):
-        ...
+        return self.getFromDef('ROBOT').getField('translation').getSFVec3f()[2] < -10
+        #return self.__n > self.__max_n ??????????????????????????????????????????
+
+    def _sim_reset(self):
+        print("---RESET---")
+        
+        self.simulationReset()
+        self.simulationResetPhysics()
+        
+        super().step(self.__timestep)
+
+        random_rotation = [0, 0, 1, np.random.uniform(0, 2 * np.pi)]
+        self.getFromDef('ROBOT').getField('rotation').setSFRotation(random_rotation)
+        self.getFromDef('ROBOT').getField('translation').setSFVec3f([0, 0, 1])
+        
+        self.left_motor.setPosition(float('inf'))
+        self.right_motor.setPosition(float('inf'))
+
+        self.left_motor.setVelocity(0)
+        self.right_motor.setVelocity(0)
 
 
 def main():
