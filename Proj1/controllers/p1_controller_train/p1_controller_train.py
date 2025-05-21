@@ -1,10 +1,12 @@
 import sys
 import os
 
+
 # Add the parent 'controllers' directory to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from p1_util.evolution_manager import Evolution_Manager
+
 
 # Simulation parameters
     # Webots
@@ -13,7 +15,7 @@ EVALUATION_TIME = 100                           # Simulated seconds per individu
 
     # Evolutionary
         # Model
-INDIVIDUAL_TYPE = "BRAITENBERG"            # "BRAITENBERG" | "NETWORKS_SIMPLE" | "NETWORKS_COMPLEX"
+INDIVIDUAL_TYPE = "NETWORKS_COMPLEX"            # "BRAITENBERG" | "NETWORKS_SIMPLE" | "NETWORKS_COMPLEX"
 
         # Init
 GENERATION_LIMIT = 500                          # N Generations
@@ -24,7 +26,7 @@ SELECTION_NUMBER = 4                             # N Individuals to keep
 
         # Mutation
 MUTATION_RATE = 1                               # N * MUTATION_RATE in N New Individuals
-MUTATION_ALTER = 0.17                           # N * MUTATION_ALTER in N Genes
+MUTATION_ALTER = 30/112                            # N * MUTATION_ALTER in N Genes
     
 # Saving and Loading
 INDIVIDUALS_HISTORY_PATH = "../p1_util/evolutionary.csv"    # Path for Individuals History

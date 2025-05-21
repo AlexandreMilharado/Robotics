@@ -5,3 +5,4 @@ torch
 gym
 stable-baselines3[extra]
 tdmclient
+sb3_contrib

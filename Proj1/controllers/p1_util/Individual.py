@@ -1,17 +1,8 @@
 from math import sqrt
-import torch
-import torch.nn as nn
-
-SIMPLE_NET_INPUT = 2
-SIMPLE_NET_HIDDEN = 4
-SIMPLE_NET_OUTPUT = 2
 
 # Span of Universe
 MAX_VALUE_WEIGHT = 1                                        # Maximum Value for Gene
 MIN_VALUE_WEIGHT = -1                                       # Minimum Value for Gene
-
-# Crossover
-GENES_NUMBER = 6                                            # Number of Genes
 
 
 class Individual:                       
@@ -95,16 +86,37 @@ class Individual:
     
     def distance_from_all(self, population):
         def path_distance(path1, path2):
-            return sum(self.euclidean(p1, p2) for p1, p2 in zip(path1, path2)) / len(path1)
+            return sum(self.euclidean(p1, p2) for p1, p2 in zip(path1, path2)) / len(path1) if len(path1) != 0 else 0
         
         return sum(path_distance(self.path, other.path) for other in population if other != self) / (len(population) - 1)
 
-    def position_diff(self):
-        diff = 0
-        for i in range(len(self.path) - 1):
-            diff += self.euclidean(self.path[i + 1], self.path[i])
+    # def position_diff(self):
+    #     diff = 0
+    #     for i in range(len(self.path) - 1):
+    #         diff += self.euclidean(self.path[i + 1], self.path[i])
 
-        return diff / (9.53 * len(self.path))
+    #     return diff / (9.53 * len(self.path)) if len(self.path) != 0 else 0
+    def position_diff(self, threshold_dispersion=0.05, ratio_threshold=2.0):
+        if len(self.path) < 10:
+            return False  # Not enough data
+
+        split_index = int(len(self.path) * 0.3)
+        early_path = self.path[:split_index]
+        late_path = self.path[split_index:]
+
+        def dispersion(positions):
+            xs = [p[0] for p in positions]
+            ys = [p[1] for p in positions]
+            return (max(xs) - min(xs)) + (max(ys) - min(ys))
+
+        early_disp = dispersion(early_path)
+        late_disp = dispersion(late_path)
+
+        # Circling if early movement was broad, then got "stuck" in a tight loop
+        if early_disp > threshold_dispersion and late_disp < (early_disp / ratio_threshold):
+            return True
+
+        return False
 
     def dna_diff(self, other):
         """
@@ -123,7 +135,7 @@ class Individual:
         diff = 0
         for i in range(len(self.weights)):
             diff += abs(self.weights[i] - other.weights[i])
-        return diff / (GENES_NUMBER * (MAX_VALUE_WEIGHT - MIN_VALUE_WEIGHT))
+        return diff / (len(self.weights) * (MAX_VALUE_WEIGHT - MIN_VALUE_WEIGHT))
     
     def to_list(self):
         return [self.gen_number,

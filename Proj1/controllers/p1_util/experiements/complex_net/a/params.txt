@@ -1,0 +1,18 @@
+MUTATION_ALTER = 30/112                            # N * MUTATION_ALTER in N Genes
+
+NETWORKS_COMPLEX = {"MAX_VALUE_WEIGHT": 1,                              # Maximum Value for Gene
+                    "MIN_VALUE_WEIGHT" : -1,                            # Minimum Value for Gene
+                    "GENES_NUMBER" : 112,                               # Number of Genes
+                    "REWARD_BLACK_LINE": 1,                             # Reward on Black Line
+                    "REWARD_BLACK_SPEED": 0,                            # Reward on Black Line
+                    "REWARD_DIFFERENT_PATH": 0,                         # Reward on difference between paths
+                    "PENALTY_DIFFERENT_POSITION": 0.9,                  # Penalty on same positions taken by Robot
+                    "PENALTY_WIGGLY_MOV": 0,                            # Penalty on Wiggle Movement
+                    "PENALTY_DNA": 0.15,                                # Penalty for DNA Difference
+                    "PENALTY_STOP_FRONT": 0.05,                         # Penalty for not moving when enconter object
+                    "PENALTY_COLISION": 0.4,                            # Penalty for colling
+                    "MAX_COLISION": 10,                                 # Max Colision before stop
+                    "CROSSOVER_ARITHMETIC_MAX": 1,                      # Max Value for Alpha
+                    "CROSSOVER_ARITHMETIC_MIN": 1,                      # Min Value for Alpha
+                    "MUTATION_VARIANCE": 0.5,  
+                }

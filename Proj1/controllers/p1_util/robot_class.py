@@ -1,10 +1,16 @@
 from math import cos, sin
+import math
 import numpy as np
 from controller import Supervisor, DistanceSensor, Motor
 
 WHEEL_DISTANCE = 0.112            # Distance between wheels in Thymio Robot
+MAX_OMEGA = 9.53
+MAX_SENSOR_FRONT = 4308.0
+ANGLE_ACTIONS = [-0.6981, 0, 0.7854]
+ROBOT_LENGTH = 0.112
+ROBOT_WIDTH = 0.117
 
-OBSTACLES_NUMBER = 5 
+OBSTACLES_NUMBER = 10
 OBSTACLES_MIN_RADIUS = 0.5
 OBSTACLES_MAX_RADIUS = 1.4
 
@@ -19,6 +25,10 @@ class SimulationEndedError(Exception):
 class Agent:
 # Inits
     def __init__(self, INDIVIDUAL_TYPE, timestep_multiplier):
+
+        self.supervisor : Supervisor = Supervisor()
+        self.timestep = int(self.supervisor.getBasicTimeStep() * timestep_multiplier)
+        
         match INDIVIDUAL_TYPE:
             case "BRAITENBERG": 
                 self.read_sensors = self._get_ground_sensors_values
@@ -32,13 +42,11 @@ class Agent:
                 self.reset = self._reset_without_obstacles
             case _:
                 self.read_sensors = self._get_frontal_and_ground_sensors_values
-                self.run_step = self._run_step_net
+                self.run_step = self._run_step_complex_net
                 self._limit_velocity = self._limit_velocity_net
+                # self.reset = self._reset_without_obstacles
                 self.reset = self._reset_with_obstacles
                 self._init_boxes()
-        
-        self.supervisor : Supervisor = Supervisor()
-        self.timestep = int(self.supervisor.getBasicTimeStep() * timestep_multiplier)
     
         self.rotation = self.supervisor.getFromDef("ROBOT").getField("rotation")             
         self.translation = self.supervisor.getFromDef("ROBOT").getField("translation")
@@ -102,7 +110,7 @@ class Agent:
 
         for i in range(OBSTACLES_NUMBER):
             position = self._random_position(OBSTACLES_MIN_RADIUS, OBSTACLES_MAX_RADIUS, 0)
-            orientation = self.random_orientation()
+            orientation = self._random_orientation()
             length = np.random.uniform(0.05, 0.2)
             width = np.random.uniform(0.05, 0.2)
             
@@ -139,15 +147,7 @@ class Agent:
 
 # Readings
     def get_frontal_sensors_values(self):
-        """
-        Returns the values of the left, center and right frontal sensors.
-
-        Returns
-        -------
-        tuple
-            A tuple containing the values of the left, center and right frontal sensors.
-        """
-        return (self.sensors[0].getValue(), self.sensors[2].getValue(), self.sensors[4].getValue())
+        return (self.sensors[0].getValue()/MAX_SENSOR_FRONT, self.sensors[2].getValue()/MAX_SENSOR_FRONT, self.sensors[4].getValue()/MAX_SENSOR_FRONT)
 
     def _get_ground_sensors_values(self):
         """
@@ -172,7 +172,7 @@ class Agent:
         list
             A list containing the values of the seven horizontal sensors.
         """
-        return [sensor.getValue() for sensor in self.sensors[:7]]
+        return [sensor.getValue() for sensor in self.sensors[:5]] + [sensor.getValue() + 300 for sensor in self.sensors[5:-2]]
 
     def get_average_velocity(self):
         """
@@ -237,12 +237,22 @@ class Agent:
             return abs(rx) <= width / 2 and abs(ry) <= height / 2
 
         current_position = self.supervisor.getSelf().getPosition()[:2]
+
+        half_length = ROBOT_LENGTH / 2 + 0.015
+        half_width = ROBOT_WIDTH / 2 + 0.015
+        corners = [
+            (current_position[0] - half_length, current_position[1] - half_width),
+            (current_position[0] + half_length, current_position[1] - half_width),
+            (current_position[0] - half_length, current_position[1] + half_width),
+            (current_position[0] + half_length, current_position[1] + half_width),
+            ]
         for translation, size, angle in self._black_line:
-            if is_point_in_rotated_rectangle(current_position[0], current_position[1],
+            for corner in corners:
+                if is_point_in_rotated_rectangle(corner[0], corner[1],
                                             translation[0], translation[1],
                                             size[0], size[1],
                                             angle):
-                return True
+                    return True
             
         return False
 
@@ -317,7 +327,9 @@ class Agent:
             obs.getField("translation").setSFVec3f(self._random_position(OBSTACLES_MIN_RADIUS, OBSTACLES_MAX_RADIUS, 0))
 
     def _reset_with_obstacles(self):
-        self._reset_params(self._random_orientation(), self._random_position(RESET_MIN_RADIUS, RESET_MAX_RADIUS))
+        rotation, translation = self._get_rotation_translation()
+        self._reset_params(rotation, translation)
+        # self._reset_params(self._random_orientation(), self._random_position(RESET_MIN_RADIUS, RESET_MAX_RADIUS, 0))
         self._reset_boxes()
         self.supervisor.simulationResetPhysics()
 
@@ -375,6 +387,16 @@ class Agent:
         """
         self.right_motor.setVelocity(self._limit_velocity(velocity, weights))
 
+    def _set_wheel_velocities(self, angle, velocity, sensors_inputs):
+        k_angle = MAX_OMEGA / math.pi
+        omega = k_angle * angle
+
+        v_left  = velocity - (WHEEL_DISTANCE / 2.0) * omega
+        v_right = velocity + (WHEEL_DISTANCE / 2.0) * omega
+
+        self.set_velocity_left_motor(v_left, sensors_inputs)
+        self.set_velocity_right_motor(v_right, sensors_inputs)
+
 # Movement
     def run_individual(self, individual):
         # Read Sensors
@@ -398,3 +420,10 @@ class Agent:
 
         self.set_velocity_left_motor(left_speed, sensors_inputs)
         self.set_velocity_right_motor(right_speed, sensors_inputs)
+
+    def _run_step_complex_net(self, individual, sensors_inputs):
+        # angle_idx, velocity = individual.forward(sensors_inputs)
+        # self._set_wheel_velocities(ANGLE_ACTIONS[angle_idx], velocity, sensors_inputs)
+
+        angle, velocity = individual.forward(sensors_inputs)
+        self._set_wheel_velocities(angle, velocity, sensors_inputs)

@@ -7,16 +7,20 @@ from p1_util.History_Individuals import History_Individuals
 from p1_util.robot_class import Agent, SimulationEndedError
 from functools import partial
 
-np.random.seed(105946)                                                  # Seed for Reproducibility
+
+np.random.seed(2025)                                                  # Seed for Reproducibility
 
 BRAITENBERG = { "MAX_VALUE_WEIGHT": 1,                                  # Maximum Value for Gene
                 "MIN_VALUE_WEIGHT" : -1,                                # Minimum Value for Gene
                 "GENES_NUMBER" : 6,                                     # Number of Genes
-                "REWARD_BLACK_LINE": 2,                                 # Reward on Black Line
-                "REWARD_DIFFERENT_PATH": 0.1,                           # Reward on difference between paths
-                "PENALTY_DIFFERENT_POSITION": 0.1,                      # Penalty on same positions taken by Robot
-                "PENALTY_WIGGLY_MOV": 2,                                # Penalty on Wiggle Movement
-                "PENALTY_DNA": 0,                                    # Penalty for DNA Difference
+                "REWARD_BLACK_LINE": 1,                                 # Reward on Black Line
+                "REWARD_BLACK_SPEED": 0,                                # Reward on Black Line
+                "REWARD_DIFFERENT_PATH": 0,                             # Reward on difference between paths
+                "PENALTY_DIFFERENT_POSITION": 0.9,                      # Penalty on same positions taken by Robot
+                "PENALTY_WIGGLY_MOV": 0,                                # Penalty on Wiggle Movement
+                "PENALTY_DNA": 0.15,                                    # Penalty for DNA Difference
+                "PENALTY_COLISION": 0,                                  # Penalty for colling
+                "MAX_COLISION": 1,                                      # Max Colision before stop
                 "CROSSOVER_ARITHMETIC_MAX": 1.5,                        # Max Value for Alpha
                 "CROSSOVER_ARITHMETIC_MIN": -0.5,                       # Min Value for Alpha
                 "MUTATION_VARIANCE": 0.5,                               # Variance for Mutation
@@ -26,11 +30,14 @@ BRAITENBERG = { "MAX_VALUE_WEIGHT": 1,                                  # Maximu
 NETWORKS_SIMPLE = { "MAX_VALUE_WEIGHT": 1,                              # Maximum Value for Gene
                     "MIN_VALUE_WEIGHT" : -1,                            # Minimum Value for Gene
                     "GENES_NUMBER" : 22,                                # Number of Genes
-                    "REWARD_BLACK_LINE": 2,                             # Reward on Black Line
-                    "REWARD_DIFFERENT_PATH": 0.1,                       # Reward on difference between paths
-                    "PENALTY_DIFFERENT_POSITION": 0.1,                  # Penalty on same positions taken by Robot
-                    "PENALTY_WIGGLY_MOV": 2,                            # Penalty on Wiggle Movement
+                    "REWARD_BLACK_LINE": 1,                             # Reward on Black Line
+                    "REWARD_BLACK_SPEED": 0,                            # Reward on Black Line
+                    "REWARD_DIFFERENT_PATH": 0,                         # Reward on difference between paths
+                    "PENALTY_DIFFERENT_POSITION": 0.9,                  # Penalty on same positions taken by Robot
+                    "PENALTY_WIGGLY_MOV": 0,                            # Penalty on Wiggle Movement
                     "PENALTY_DNA": 0.15,                                # Penalty for DNA Difference
+                    "PENALTY_COLISION": 0,                              # Penalty for colling
+                    "MAX_COLISION": 1,                                  # Max Colision before stop
                     "CROSSOVER_ARITHMETIC_MAX": 1.5,                    # Max Value for Alpha
                     "CROSSOVER_ARITHMETIC_MIN": -0.5,                   # Min Value for Alpha
                     "MUTATION_VARIANCE": 0.5,                           # Variance for Mutation
@@ -38,15 +45,19 @@ NETWORKS_SIMPLE = { "MAX_VALUE_WEIGHT": 1,                              # Maximu
 
 NETWORKS_COMPLEX = {"MAX_VALUE_WEIGHT": 1,                              # Maximum Value for Gene
                     "MIN_VALUE_WEIGHT" : -1,                            # Minimum Value for Gene
-                    "GENES_NUMBER" : 434,                               # Number of Genes
-                    "REWARD_BLACK_LINE": 2,                             # Reward on Black Line
-                    "REWARD_DIFFERENT_PATH": 0.1,                       # Reward on difference between paths
-                    "PENALTY_DIFFERENT_POSITION": 0.1,                  # Penalty on same positions taken by Robot
-                    "PENALTY_WIGGLY_MOV": 2,                            # Penalty on Wiggle Movement
+                    "GENES_NUMBER" : 112,                               # Number of Genes
+                    "REWARD_BLACK_LINE": 1,                             # Reward on Black Line
+                    "REWARD_BLACK_SPEED": 0,                            # Reward on Black Line
+                    "REWARD_DIFFERENT_PATH": 0,                         # Reward on difference between paths
+                    "PENALTY_DIFFERENT_POSITION": 0.9,                  # Penalty on same positions taken by Robot
+                    "PENALTY_WIGGLY_MOV": 0,                            # Penalty on Wiggle Movement
                     "PENALTY_DNA": 0.15,                                # Penalty for DNA Difference
-                    "CROSSOVER_ARITHMETIC_MAX": 1.5,                    # Max Value for Alpha
-                    "CROSSOVER_ARITHMETIC_MIN": -0.5,                   # Min Value for Alpha
-                    "MUTATION_VARIANCE": 0.5,                           # Variance for Mutation
+                    "PENALTY_STOP_FRONT": 0.05,                         # Penalty for not moving when enconter object
+                    "PENALTY_COLISION": 0.4,                            # Penalty for colling
+                    "MAX_COLISION": 10,                                 # Max Colision before stop
+                    "CROSSOVER_ARITHMETIC_MAX": 1,                      # Max Value for Alpha
+                    "CROSSOVER_ARITHMETIC_MIN": 1,                      # Min Value for Alpha
+                    "MUTATION_VARIANCE": 0.5,  
                 }
 
 class Evolution_Manager():
@@ -97,7 +108,7 @@ class Evolution_Manager():
         except FileNotFoundError:
             print("No file found --- Creating a new one")
 
-    def load_best_individual(self):
+    def load_best_individual_on_last_gen(self):
         return self.history.load_best_individual()
 
     def reset(self):
@@ -213,18 +224,28 @@ class Evolution_Manager():
     
 # Fitness Functions
     def start_fitness(self):
-        return self.agent.get_max_velocity()
+        return abs(self.agent.get_max_velocity())
 
     def reward_fitness_on_black_line(self):
-        sensors_readings =  self.agent.read_sensors()
-        return self.CONSTANT["REWARD_BLACK_LINE"] * self.agent.get_average_velocity() * sum([int(not reading) for reading in sensors_readings])
+        sensors_readings =  self.agent._get_ground_sensors_values()
+        return self.CONSTANT["REWARD_BLACK_SPEED"] * abs(self.agent.get_average_velocity()) * sum([int(not reading) for reading in sensors_readings])
+    
+    def reward_fitness_on_straight_line(self):
+        return self.CONSTANT["REWARD_STRAIGHT_LINE"] * (abs(self.agent.left_motor.getVelocity() - self.agent.right_motor.getVelocity()) < 0.2)
 
     def penalty_fitness_based_on_collision(self, fitness, limit_timestep, timesteps):
         return fitness / (limit_timestep - timesteps + 1) 
     
     def penalty_wiggly_movement(self, angular_velocity):
-        return -self.CONSTANT["PENALTY_WIGGLY_MOV"] * self.agent.get_max_velocity() * (np.sign(angular_velocity) != np.sign(self.agent.get_angular_velocity()) and
+        return -self.CONSTANT["PENALTY_WIGGLY_MOV"] * abs(self.agent.get_max_velocity()) * (np.sign(angular_velocity) != np.sign(self.agent.get_angular_velocity()) and
                                                     self.agent.left_motor != self.agent.right_motor)
+    def penalty_front_object(self):
+        values = [value / 4301 for value in self.agent.get_frontal_sensors_values()]
+        result = sum(values) / len(values)
+        return -self.CONSTANT["PENALTY_STOP_FRONT"] * abs(self.agent.get_average_velocity()) * result
+
+    def penalty_obstacle_colision(self, fitness, n):
+        return fitness - (n/self.CONSTANT["MAX_COLISION"]) * self.CONSTANT["PENALTY_COLISION"]
                 
     def penalty_fitness_based_on_best_dna(self, sorted_individuals, penalties):
         for i in range(len(sorted_individuals) - 1):
@@ -257,6 +278,14 @@ class Evolution_Manager():
             penalties[i] = (index, fitness)
 
         return penalties
+
+    def reward_fitness_black_line(self, sorted_individuals, rewards, line_percentage):
+        for i, individual in enumerate(sorted_individuals):
+            index, fitness = rewards[i]
+            fitness += self.CONSTANT["REWARD_BLACK_LINE"] * line_percentage[index][1]
+            rewards[i] = (index, fitness)
+
+        return rewards
  
 
 # Stats World
@@ -275,10 +304,11 @@ class Evolution_Manager():
         def update_fitness(fitness, angular_velocity):
             return (fitness +
                     self.reward_fitness_on_black_line() +
+                    self.penalty_front_object() +
                     self.penalty_wiggly_movement(angular_velocity))
         
         def normalise_fitness(fitness):
-            return fitness / MAX_FITNESS_VALUE
+            return (fitness) / MAX_FITNESS_VALUE
 
         def update_stats(stats):
             stats["line_touches"] += int(self.agent.is_on_black_line_map())
@@ -286,10 +316,12 @@ class Evolution_Manager():
         angular_velocity = self.agent.get_angular_velocity()
         limit_timestep = int((self.evaluation_time * 1000) / self.agent.timestep + 0.5)
         MAX_FITNESS_VALUE = 2 * 9.53 * limit_timestep
+        # MAX_FITNESS_VALUE =  limit_timestep
         fitness = self.start_fitness()
         stats = {"line_touches": 0}
         timesteps = 0 
-        while self.agent.supervisor.step(self.agent.timestep) != -1 and timesteps < limit_timestep and not self.agent.collided():
+        n = 0
+        while self.agent.supervisor.step(self.agent.timestep) != -1 and timesteps < limit_timestep and n < 10:
             # Run 1 Step
             self.agent.run_individual(individual)
 
@@ -302,26 +334,37 @@ class Evolution_Manager():
             update_stats(stats)
             timesteps += 1
 
+            if self.agent.collided():
+                n += 1
+                self.reset()
+        
         if timesteps < limit_timestep and not self.agent.collided():
             raise SimulationEndedError()
         
         # Fitness Calculation
         fitness = self.penalty_fitness_based_on_collision(fitness, limit_timestep, timesteps)
         fitness = normalise_fitness(fitness)
+        fitness = self.penalty_obstacle_colision(fitness, n)
 
         return {"FITNESS": fitness, "LINE_PERCENTAGE": stats["line_touches"]/limit_timestep}
 
     def train_one_individual(self, individual):
         failed = True
-        result = {}
-        while failed:
+        result = {"FITNESS": 0, "LINE_PERCENTAGE": 0}
+        tries = 0
+        while failed and tries < 3:
             try:
                 self.reset()
-                result = self.train_individual(individual)
+                result_try = self.train_individual(individual)
+                result["FITNESS"] += result_try["FITNESS"]
+                result["LINE_PERCENTAGE"] += result_try["LINE_PERCENTAGE"]
                 failed = False
+                tries +=1
             except SimulationEndedError:
-                print("HERE")
-                pass
+                print("Restarting training")
+
+        result["FITNESS"] /= tries
+        result["LINE_PERCENTAGE"] /= tries
         return result
 
     def train_one_generation(self, gen_number):
@@ -338,11 +381,18 @@ class Evolution_Manager():
             line_percentage.append((i, result["LINE_PERCENTAGE"]))
 
 
+
         # Fitness Calculation
         individuals = Individual.sort_individuals_by_fitness_list(self.current_gen_individuals, fitness)
+        print("sort_individuals_by_fitness_list")
         fitness = self.penalty_fitness_based_on_best_dna(individuals, fitness)
+        print("penalty_fitness_based_on_best_dna")
         fitness = self.reward_fitness_on_different_pathing_from(individuals, fitness)
+        print("reward_fitness_on_different_pathing_from")
         fitness = self.penalty_fitness_on_same_position(individuals, fitness)
+        print("penalty_fitness_on_same_position")
+        fitness = self.reward_fitness_black_line(individuals, fitness, line_percentage)
+        print("Fitness Ended")
 
         # Setting Individuals Fitness
         for i in range(len(individuals)):
@@ -353,22 +403,26 @@ class Evolution_Manager():
         self.set_line_percentage(individuals, line_percentage)
         self.set_diversity(individuals)
         self.history.add_all(individuals)
+        print("SETTING Ended")
 
         # Sort Best Individuals
         self.current_gen_individuals = Individual.sort_individuals(individuals)
+        print("Sort Ended")
 
         # Selection
         survivors = self.current_gen_individuals[:self.selection_number]
+        print("Selection Ended")
 
         # Crossover
         children_weights = self.crossover(partial(self.sus, self.current_gen_individuals),
                                 self.arithmetic_crossover,
                                 len(self.current_gen_individuals) - self.selection_number)
+        print("Crossover Ended")
         
 
         # Mutation
         self.mutation(self.mutate_alter_value, children_weights)
-
+        print("Mutation Ended")
 
         # Performance Log
         print(f"---GEN {gen_number}---")

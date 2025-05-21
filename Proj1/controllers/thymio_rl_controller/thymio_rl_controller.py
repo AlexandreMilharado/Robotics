@@ -12,7 +12,7 @@ try:
     import sys
     from stable_baselines3.common.callbacks import CheckpointCallback
     from sb3_contrib import RecurrentPPO
-    from controller import Supervisor
+    from controller import Supervisor, Motor
 
 except ImportError:
     sys.exit('Please make sure you have all dependencies installed.')
@@ -21,6 +21,7 @@ except ImportError:
 TIME_STEP = 5
 WHEEL_DISTANCE = 0
 WHEEL_RADIUS = 0
+MAX_VELOCITY = 9.53
 
 
 #
@@ -31,7 +32,6 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
     def __init__(self, max_episode_steps = 3000):
         
         super().__init__()
-
         gym.register(
             id='WebotsEnv-v0',
             entry_point=OpenAIGymEnvironment,
@@ -43,8 +43,8 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         # Fill in according to the action space of Thymio
         # See: https://www.gymlibrary.dev/api/spaces/
         self.action_space = gym.spaces.Box(
-            low=np.array([-0.2, -3.571]),
-            high=np.array([0.2, 3.571]),
+            low=np.array([-MAX_VELOCITY, -MAX_VELOCITY]),
+            high=np.array([MAX_VELOCITY, MAX_VELOCITY]),
             dtype=np.float64)
 
         # Fill in according to Thymio's sensors
@@ -142,14 +142,9 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return {}
         ...
 
-    def _set_velocities(self, action, wheel_radius=0.021, wheel_distance=0.095):
-        v_linear, v_angular = action[0], action[1]
-
-        v_left = (2 * v_linear - v_angular * wheel_distance) / (2 * wheel_radius)
-        v_right = (2 * v_linear + v_angular * wheel_distance) / (2 * wheel_radius)
-        
-        self.left_motor.setVelocity(max(min(v_left, 9), -9))
-        self.right_motor.setVelocity(max(min(v_right, 9), -9))
+    def _set_velocities(self, action):
+        self.left_motor.setVelocity(max(min(action[0], MAX_VELOCITY), -MAX_VELOCITY))
+        self.right_motor.setVelocity(max(min(action[1], MAX_VELOCITY), -MAX_VELOCITY))
 
     def _act(self):
         for i in range(10):
