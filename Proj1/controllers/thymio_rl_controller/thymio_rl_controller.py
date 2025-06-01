@@ -8,6 +8,7 @@ import torch
 
 
 try:
+    import os
     import time
     import gymnasium as gym
     import torch
@@ -21,6 +22,8 @@ try:
 except ImportError:
     sys.exit('Please make sure you have all dependencies installed.')
 
+
+MODEL_PATH = "RecurrentPPO_test_1"
 
 TIME_STEP = 5
 EPISODE_STEPS = 500
@@ -339,19 +342,22 @@ def main():
     print("CUDA device count:", torch.cuda.device_count())
     print("CUDA device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")
 
-    model = RecurrentPPO(
-        "MlpLstmPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
-        n_steps=ROLLOUT_STEPS,
-        batch_size=64,
-        ent_coef=0.02,
-        clip_range=0.2,
-        vf_coef=0.5,
-        learning_rate=3e-4,
-        max_grad_norm=0.5,
-        verbose=1
-    )
+    if os.path.exists(MODEL_PATH):
+        model = RecurrentPPO.load(MODEL_PATH, env)
+    else:
+        model = RecurrentPPO(
+            "MlpLstmPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
+            n_steps=ROLLOUT_STEPS,
+            batch_size=64,
+            ent_coef=0.02,
+            clip_range=0.2,
+            vf_coef=0.5,
+            learning_rate=3e-4,
+            max_grad_norm=0.5,
+            verbose=1
+        )
     model.learn(500000)
-    model.save("RecurrentPPO_test_1")
+    model.save(MODEL_PATH)
 
     # Code to load a model and run it
     # For the RecurrentPPO case, consult its documentation
