@@ -340,7 +340,7 @@ def main():
     print("CUDA device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")
 
     model = RecurrentPPO(
-        "MlpLstmPolicy", env, device="cuda:0",
+        "MlpLstmPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
         n_steps=ROLLOUT_STEPS,
         batch_size=64,
         ent_coef=0.02,
