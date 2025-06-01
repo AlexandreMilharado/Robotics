@@ -19,8 +19,10 @@ except ImportError:
 
 
 TIME_STEP = 5
-WHEEL_DISTANCE = 0
-WHEEL_RADIUS = 0
+EPISODE_STEPS = 3000
+LEDGE_THRESHOLD = 100
+PROX_THRESHOLD = 400
+ACC_THRESHOLD = 2
 
 
 #
@@ -28,7 +30,7 @@ WHEEL_RADIUS = 0
 #
 class OpenAIGymEnvironment(Supervisor, gym.Env):
     
-    def __init__(self, max_episode_steps = 3000):
+    def __init__(self, max_episode_steps = EPISODE_STEPS):
         
         super().__init__()
 
@@ -43,19 +45,19 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         # Fill in according to the action space of Thymio
         # See: https://www.gymlibrary.dev/api/spaces/
         self.action_space = gym.spaces.Box(
-            low=np.array([-0.2, -3.571]),
-            high=np.array([0.2, 3.571]),
+            low=np.array([-9, -9]),
+            high=np.array([9, 9]),
             dtype=np.float64)
 
         # Fill in according to Thymio's sensors
         # See: https://www.gymlibrary.dev/api/spaces/
         self.observation_space = gym.spaces.Box(
-            low=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]), 
-            high=np.array([100, 100, 100, 100, 100, 100, 100, 1000, 1000]),
+            low=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, -32, -32, -32]), 
+            high=np.array([4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 32, 32, 32]),
             dtype=np.float64)
         
         # Do all other required initializations
-        self.sensors = [
+        self.h_sensors = [
             super().getDevice('prox.horizontal.0'),
             super().getDevice('prox.horizontal.1'),
             super().getDevice('prox.horizontal.2'),
@@ -63,12 +65,20 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
             super().getDevice('prox.horizontal.4'),
             super().getDevice('prox.horizontal.5'),
             super().getDevice('prox.horizontal.6'),
+        ]
+
+        self.g_sensors = [
             super().getDevice('prox.ground.0'),
             super().getDevice('prox.ground.1')
         ]
 
-        for sensor in self.sensors:
+        self.acc_sensor = super().getDevice('acc')
+
+        for sensor in self.h_sensors:
             sensor.enable(self.__timestep)
+        for sensor in self.g_sensors:
+            sensor.enable(self.__timestep)
+        self.acc_sensor.enable(self.__timestep)
 
         self.left_motor = super().getDevice('motor.left')
         self.right_motor = super().getDevice('motor.right')
@@ -136,7 +146,12 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return self.state.astype(np.float64), reward, terminated, truncated, info
     
     def _get_obs(self):
-        return np.array([sensor.getValue() for sensor in self.sensors])
+        acc_x, acc_y, acc_z = self.acc_sensor.getValues()
+        state = []
+        state += [sensor.getValue() for sensor in self.h_sensors]
+        state += [sensor.getValue() for sensor in self.g_sensors]
+        state += [acc_x, acc_y, acc_z]
+        return np.array(state)
     
     def _get_info(self):
         return {}
@@ -156,16 +171,31 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
             super().step(self.__timestep)
 
     def _get_reward(self):
-        return 0#TODO implement
+        total = 0
+        
+        for sensor in self.h_sensors:
+            if sensor.getValue() > PROX_THRESHOLD:
+                total -= 10
 
-        ...
+        for sensor in self.g_sensors:
+            if sensor.getValue() > PROX_THRESHOLD:
+                total -= 20
+
+        acc_x, acc_y, acc_z = self.acc_sensor.getValues()
+        acc = math.sqrt(acc_x**2 + acc_y**2 + acc_z**2)
+        if acc < ACC_THRESHOLD:
+            total -= 40
+
+        return total
 
     def _determine_terminated(self):
-        ...
+        acc_x, acc_y, acc_z = self.acc_sensor.getValues()
+        acc = math.sqrt(acc_x**2 + acc_y**2 + acc_z**2)
+        print("ACC", acc)
+        return acc < ACC_THRESHOLD and self.__n > self.__max_n
 
     def _determine_truncated(self):
-        return self.getFromDef('ROBOT').getField('translation').getSFVec3f()[2] < -10
-        #return self.__n > self.__max_n ??????????????????????????????????????????
+        return False
 
     def _sim_reset(self):
         print("---RESET---")
@@ -199,13 +229,20 @@ def main():
     # For the RecurrentPPO case, consult its documentation
     if ('WebotsEnv-v0' not in gym.registry):
         raise Exception('Environment not registered correctly')
-    model = RecurrentPPO("MlpLstmPolicy", env, verbose=1)
+    model = RecurrentPPO("MlpLstmPolicy", env, device="cuda", verbose=1)
     model.learn(5000)
     ...
 
     # Code to load a model and run it
     # For the RecurrentPPO case, consult its documentation
     ...
+    obs, _ = env.reset()  # Handle new reset return format
+    for _ in range(100000):
+        action, _states = model.predict(obs)
+        obs, reward, terminated, truncated, info = env.step(action)  # Handle new step return format
+        print(obs, reward, terminated, truncated, info)
+        if terminated or truncated:
+            obs, _ = env.reset()
 
 
 if __name__ == '__main__':
