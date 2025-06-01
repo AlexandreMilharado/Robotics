@@ -10,26 +10,40 @@ from p1_util.evolution_manager import Evolution_Manager
 
 # Simulation parameters
     # Webots
+#TODO ALTERAR
 TIME_STEP_MULTIPLIER = 6.4                      # Webots timestep
+
+#TODO ALTERAR
 EVALUATION_TIME = 100                           # Simulated seconds per individual
 
     # Evolutionary
         # Model
+#TODO ALTERAR
 INDIVIDUAL_TYPE = "NETWORKS_COMPLEX"            # "BRAITENBERG" | "NETWORKS_SIMPLE" | "NETWORKS_COMPLEX"
 
         # Init
+#TODO ALTERAR
 GENERATION_LIMIT = 500                          # N Generations
+
+#TODO ALTERAR
 POPULATION_SIZE = 20                            # N Individuals per Generation
 
         # Selection
+#TODO ALTERAR
 SELECTION_NUMBER = 4                             # N Individuals to keep
 
         # Mutation
+#TODO ALTERAR
 MUTATION_RATE = 1                               # N * MUTATION_RATE in N New Individuals
-MUTATION_ALTER = 30/112                            # N * MUTATION_ALTER in N Genes
+
+#TODO ALTERAR
+MUTATION_ALTER = 1/42                           # N * MUTATION_ALTER in N Genes
     
 # Saving and Loading
+#TODO ALTERAR
 INDIVIDUALS_HISTORY_PATH = "../p1_util/evolutionary.csv"    # Path for Individuals History
+
+#TODO ALTERAR
 BEST_INDIVIDUAL_PATH = "../p1_util/best_individual.pkl"     # Path for Best Individual
 
 def main():

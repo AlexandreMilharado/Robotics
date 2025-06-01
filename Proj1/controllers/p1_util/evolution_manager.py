@@ -29,15 +29,17 @@ BRAITENBERG = { "MAX_VALUE_WEIGHT": 1,                                  # Maximu
 
 NETWORKS_SIMPLE = { "MAX_VALUE_WEIGHT": 1,                              # Maximum Value for Gene
                     "MIN_VALUE_WEIGHT" : -1,                            # Minimum Value for Gene
-                    "GENES_NUMBER" : 22,                                # Number of Genes
-                    "REWARD_BLACK_LINE": 1,                             # Reward on Black Line
+                    "GENES_NUMBER" : 38,                                # Number of Genes
+                    "REWARD_BLACK_LINE": 0,                             # Reward on Black Line
                     "REWARD_BLACK_SPEED": 0,                            # Reward on Black Line
                     "REWARD_DIFFERENT_PATH": 0,                         # Reward on difference between paths
+                    "REWARD_ALIVE": 1,                                  # Reward for being alive
                     "PENALTY_DIFFERENT_POSITION": 0.9,                  # Penalty on same positions taken by Robot
                     "PENALTY_WIGGLY_MOV": 0,                            # Penalty on Wiggle Movement
                     "PENALTY_DNA": 0.15,                                # Penalty for DNA Difference
-                    "PENALTY_COLISION": 0,                              # Penalty for colling
-                    "MAX_COLISION": 1,                                  # Max Colision before stop
+                    "PENALTY_STOP_FRONT": 0.15,                         # Penalty for not moving when enconter object
+                    "PENALTY_COLISION": 0.4,                            # Penalty for colling
+                    "MAX_COLISION": 5,                                  # Max Colision before stop
                     "CROSSOVER_ARITHMETIC_MAX": 1.5,                    # Max Value for Alpha
                     "CROSSOVER_ARITHMETIC_MIN": -0.5,                   # Min Value for Alpha
                     "MUTATION_VARIANCE": 0.5,                           # Variance for Mutation
@@ -45,18 +47,20 @@ NETWORKS_SIMPLE = { "MAX_VALUE_WEIGHT": 1,                              # Maximu
 
 NETWORKS_COMPLEX = {"MAX_VALUE_WEIGHT": 1,                              # Maximum Value for Gene
                     "MIN_VALUE_WEIGHT" : -1,                            # Minimum Value for Gene
-                    "GENES_NUMBER" : 112,                               # Number of Genes
+                    "GENES_NUMBER" : 42,                                # Number of Genes
                     "REWARD_BLACK_LINE": 1,                             # Reward on Black Line
                     "REWARD_BLACK_SPEED": 0,                            # Reward on Black Line
                     "REWARD_DIFFERENT_PATH": 0,                         # Reward on difference between paths
+                    "REWARD_ALIVE": 0,                                  # Reward for being alive
                     "PENALTY_DIFFERENT_POSITION": 0.9,                  # Penalty on same positions taken by Robot
                     "PENALTY_WIGGLY_MOV": 0,                            # Penalty on Wiggle Movement
-                    "PENALTY_DNA": 0.15,                                # Penalty for DNA Difference
-                    "PENALTY_STOP_FRONT": 0.05,                         # Penalty for not moving when enconter object
-                    "PENALTY_COLISION": 0.4,                            # Penalty for colling
-                    "MAX_COLISION": 10,                                 # Max Colision before stop
-                    "CROSSOVER_ARITHMETIC_MAX": 1,                      # Max Value for Alpha
-                    "CROSSOVER_ARITHMETIC_MIN": 1,                      # Min Value for Alpha
+                    "PENALTY_DNA": 0,                                   # Penalty for DNA Difference
+                    "PENALTY_STOP_FRONT": 0,                            # Penalty for not moving when enconter object
+                    "PENALTY_FUTURE_COLISION": 0.5,                     # Penalty if current policy will colide
+                    "PENALTY_COLISION": 0,                              # Penalty for colling
+                    "MAX_COLISION": 1,                                  # Max Colision before stop
+                    "CROSSOVER_ARITHMETIC_MAX": 1.5,                    # Max Value for Alpha
+                    "CROSSOVER_ARITHMETIC_MIN": -0.5,                   # Min Value for Alpha
                     "MUTATION_VARIANCE": 0.5,  
                 }
 
@@ -232,9 +236,6 @@ class Evolution_Manager():
     
     def reward_fitness_on_straight_line(self):
         return self.CONSTANT["REWARD_STRAIGHT_LINE"] * (abs(self.agent.left_motor.getVelocity() - self.agent.right_motor.getVelocity()) < 0.2)
-
-    def penalty_fitness_based_on_collision(self, fitness, limit_timestep, timesteps):
-        return fitness / (limit_timestep - timesteps + 1) 
     
     def penalty_wiggly_movement(self, angular_velocity):
         return -self.CONSTANT["PENALTY_WIGGLY_MOV"] * abs(self.agent.get_max_velocity()) * (np.sign(angular_velocity) != np.sign(self.agent.get_angular_velocity()) and
@@ -243,6 +244,12 @@ class Evolution_Manager():
         values = [value / 4301 for value in self.agent.get_frontal_sensors_values()]
         result = sum(values) / len(values)
         return -self.CONSTANT["PENALTY_STOP_FRONT"] * abs(self.agent.get_average_velocity()) * result
+    
+    def penalty_fitness_collide(self):
+        past_collide = self.agent.will_next_position_collide()
+        self.agent.update_sensors_past()
+        new_collide = self.agent.will_next_position_collide()
+        return -self.CONSTANT["PENALTY_FUTURE_COLISION"] * (past_collide and new_collide) * abs(self.agent.get_average_velocity())
 
     def penalty_obstacle_colision(self, fitness, n):
         return fitness - (n/self.CONSTANT["MAX_COLISION"]) * self.CONSTANT["PENALTY_COLISION"]
@@ -286,7 +293,10 @@ class Evolution_Manager():
             rewards[i] = (index, fitness)
 
         return rewards
- 
+    
+    def reward_fitness_alive(self, fitness):
+        return fitness * self.CONSTANT["REWARD_ALIVE"]
+
 
 # Stats World
     def set_diversity(self, individuals):
@@ -305,6 +315,7 @@ class Evolution_Manager():
             return (fitness +
                     self.reward_fitness_on_black_line() +
                     self.penalty_front_object() +
+                    self.penalty_fitness_collide() +
                     self.penalty_wiggly_movement(angular_velocity))
         
         def normalise_fitness(fitness):
@@ -315,13 +326,13 @@ class Evolution_Manager():
 
         angular_velocity = self.agent.get_angular_velocity()
         limit_timestep = int((self.evaluation_time * 1000) / self.agent.timestep + 0.5)
-        MAX_FITNESS_VALUE = 2 * 9.53 * limit_timestep
-        # MAX_FITNESS_VALUE =  limit_timestep
+        MAX_FITNESS_VALUE = ((self.CONSTANT["REWARD_BLACK_LINE"] != 0 or self.CONSTANT["REWARD_BLACK_SPEED"] != 0) * 2 * 9.53 * limit_timestep +
+                             (self.CONSTANT["REWARD_ALIVE"] != 0) * limit_timestep)
         fitness = self.start_fitness()
         stats = {"line_touches": 0}
         timesteps = 0 
         n = 0
-        while self.agent.supervisor.step(self.agent.timestep) != -1 and timesteps < limit_timestep and n < 10:
+        while self.agent.supervisor.step(self.agent.timestep) != -1 and timesteps < limit_timestep and n < self.CONSTANT["MAX_COLISION"]:
             # Run 1 Step
             self.agent.run_individual(individual)
 
@@ -338,13 +349,13 @@ class Evolution_Manager():
                 n += 1
                 self.reset()
         
-        if timesteps < limit_timestep and not self.agent.collided():
+        if timesteps < limit_timestep and not self.agent.collided() and n != self.CONSTANT["MAX_COLISION"]:
             raise SimulationEndedError()
         
         # Fitness Calculation
-        fitness = self.penalty_fitness_based_on_collision(fitness, limit_timestep, timesteps)
         fitness = normalise_fitness(fitness)
         fitness = self.penalty_obstacle_colision(fitness, n)
+        fitness = self.reward_fitness_alive(fitness)
 
         return {"FITNESS": fitness, "LINE_PERCENTAGE": stats["line_touches"]/limit_timestep}
 
@@ -451,6 +462,5 @@ class Evolution_Manager():
             self.train_one_generation(generation_number)
             
             generation_number += 1
-    
             self.history.save_history()
-            self.history.save_best_individual()
+            # self.history.save_best_individual()

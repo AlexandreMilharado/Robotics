@@ -10,7 +10,7 @@ ANGLE_ACTIONS = [-0.6981, 0, 0.7854]
 ROBOT_LENGTH = 0.112
 ROBOT_WIDTH = 0.117
 
-OBSTACLES_NUMBER = 10
+OBSTACLES_NUMBER = 15
 OBSTACLES_MIN_RADIUS = 0.5
 OBSTACLES_MAX_RADIUS = 1.4
 
@@ -37,9 +37,12 @@ class Agent:
                 self.reset = self._reset_without_obstacles
             case "NETWORKS_SIMPLE":
                 self.read_sensors = self._get_ground_sensors_values
+                # self.read_sensors = self.get_frontal_sensors_values
                 self.run_step = self._run_step_net
                 self._limit_velocity = self._limit_velocity_net
                 self.reset = self._reset_without_obstacles
+                # self.reset = self._reset_with_obstacles
+                # self._init_boxes()
             case _:
                 self.read_sensors = self._get_frontal_and_ground_sensors_values
                 self.run_step = self._run_step_complex_net
@@ -50,6 +53,7 @@ class Agent:
     
         self.rotation = self.supervisor.getFromDef("ROBOT").getField("rotation")             
         self.translation = self.supervisor.getFromDef("ROBOT").getField("translation")
+        self.last_will_collide = False
 
         self._init_sensors()
         self._init_motors()
@@ -338,6 +342,11 @@ class Agent:
         self._reset_params(rotation, translation)
         self.supervisor.simulationResetPhysics()
 
+    def will_next_position_collide(self):
+        return self.last_will_collide
+    
+    def update_sensors_past(self):
+        self.last_will_collide = any(self.get_frontal_sensors_values())
 
 # Velocity
     def _limit_velocity_braitenberg(self, velocity, weights):
@@ -422,8 +431,7 @@ class Agent:
         self.set_velocity_right_motor(right_speed, sensors_inputs)
 
     def _run_step_complex_net(self, individual, sensors_inputs):
-        # angle_idx, velocity = individual.forward(sensors_inputs)
-        # self._set_wheel_velocities(ANGLE_ACTIONS[angle_idx], velocity, sensors_inputs)
+        left_speed, right_speed = individual.forward(sensors_inputs)
 
-        angle, velocity = individual.forward(sensors_inputs)
-        self._set_wheel_velocities(angle, velocity, sensors_inputs)
+        self.set_velocity_left_motor(left_speed, sensors_inputs)
+        self.set_velocity_right_motor(right_speed, sensors_inputs)
