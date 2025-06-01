@@ -10,6 +10,7 @@ import torch
 try:
     import time
     import gymnasium as gym
+    import torch
     import numpy as np
     import math
     import sys
@@ -22,7 +23,8 @@ except ImportError:
 
 
 TIME_STEP = 5
-EPISODE_STEPS = 10
+EPISODE_STEPS = 500
+ROLLOUT_STEPS = 2000
 LEDGE_THRESHOLD = 100
 PROX_THRESHOLD = 0.9
 ACC_THRESHOLD = 2
@@ -81,6 +83,7 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
             dtype=np.float64)
 
         self.__n = 0
+        self.__max_n = max_episode_steps
 
     #
     # Reset the environment to an initial internal state, returning an initial observation and info.
@@ -90,6 +93,7 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
 
         # Reset Simulation
         self._sim_reset()
+        self.__n = 0
 
         # initialize the sensors, reset the actuators, randomize the environment
         # See how in Lab 1 code
@@ -179,20 +183,22 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
 
         roll_deg = math.degrees(roll)
         pitch_deg = math.degrees(pitch)
-        print(roll_deg, pitch_deg)
-        if (self.getFromDef("ROBOT").getField("translation").getSFVec3f()[2] < 0
-                or abs(pitch_deg) > DEGREES_INCLINED):
-            print("ENDING")
-        return (self.getFromDef("ROBOT").getField("translation").getSFVec3f()[2] < 0
-                or abs(pitch_deg) > DEGREES_INCLINED)
+        #print("(pitch, roll) = (" + str(roll_deg) + ", " + str(pitch_deg) + ")")
+
+        terminated = (
+            self.getFromDef("ROBOT").getField("translation").getSFVec3f()[2] < 0
+            or abs(pitch_deg) > DEGREES_INCLINED
+        )
+
+        if terminated:
+            print("--- EPISODE END ---")
+        return terminated
 
     def _determine_truncated(self):
-        return False
+        return self.__n > self.__max_n
 
 # Reset Auxiliar Methods
     def _sim_reset(self):
-        print("---RESET---")
-
         self.simulationReset()
         self.simulationResetPhysics()
         
@@ -328,21 +334,24 @@ def main():
     # For the RecurrentPPO case, consult its documentation
     if ('WebotsEnv-v0' not in gym.registry):
         raise Exception('Environment not registered correctly')
-    model = RecurrentPPO("MlpLstmPolicy", env, device="cuda",
-                         n_steps=2048,
-                         batch_size=64,
-                         ent_coef=0.02,
-                         clip_range=0.2,
-                         vf_coef=0.5,
-                         learning_rate=3e-4,
-                         max_grad_norm=0.5,
-                         verbose=1)
-    model.learn(500000)
+    
+    print("PyTorch CUDA available:", torch.cuda.is_available())
+    print("CUDA device count:", torch.cuda.device_count())
+    print("CUDA device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")
 
+    model = RecurrentPPO(
+        "MlpLstmPolicy", env, device="cuda:0",
+        n_steps=ROLLOUT_STEPS,
+        batch_size=64,
+        ent_coef=0.02,
+        clip_range=0.2,
+        vf_coef=0.5,
+        learning_rate=3e-4,
+        max_grad_norm=0.5,
+        verbose=1
+    )
+    model.learn(500000)
     model.save("RecurrentPPO_test_1")
-    print(torch.cuda.is_available())
-    print(torch.cuda.device_count())
-    print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")
 
     # Code to load a model and run it
     # For the RecurrentPPO case, consult its documentation
@@ -350,7 +359,6 @@ def main():
     for _ in range(100000):
         action, _states = model.predict(obs)
         obs, reward, terminated, truncated, info = env.step(action)  # Handle new step return format
-        print(obs, reward, terminated, truncated, info)
         if terminated or truncated:
             obs, _ = env.reset()
 
