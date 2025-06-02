@@ -4,7 +4,6 @@
 # Template to use SB3 to train a Thymio in Webots.
 #
 
-import torch
 
 
 try:
@@ -15,9 +14,12 @@ try:
     import numpy as np
     import math
     import sys
-    from stable_baselines3.common.callbacks import CheckpointCallback
+    from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback, CallbackList
     from sb3_contrib import RecurrentPPO
+    from stable_baselines3 import PPO
     from controller import Supervisor, Motor, DistanceSensor
+    import csv
+
 
 except ImportError:
     sys.exit('Please make sure you have all dependencies installed.')
@@ -27,7 +29,8 @@ MODEL_PATH = "RecurrentPPO_test_1"
 
 TIME_STEP = 5
 EPISODE_STEPS = 500
-ROLLOUT_STEPS = 2000
+ROLLOUT_STEPS = EPISODE_STEPS * 4
+TOTAL_TIMESTEPS = ROLLOUT_STEPS * 250
 LEDGE_THRESHOLD = 100
 PROX_THRESHOLD = 0.9
 ACC_THRESHOLD = 2
@@ -37,12 +40,12 @@ OBSTACLES_NUMBER = 10
 OBSTACLES_MIN_RADIUS = 0.35
 OBSTACLES_MAX_RADIUS = 0.67
 
-GRID_RESOLUTION = 0.117/4
+GRID_RESOLUTION = 0.117/15
 
-REWARD_POSITVE_LINEAR_VELOCITY = 10
-REWARD_VISITED = 10
-PENALTY_PROX_OBSTACLES = 10
-PENALTY_LEDGE_OBSTACLES = 10
+REWARD_POSITVE_LINEAR_VELOCITY = 0.7
+REWARD_VISITED = 1
+PENALTY_PROX_OBSTACLES = 0.5
+PENALTY_LEDGE_OBSTACLES = 0.7
 
 #
 # Structure of a class to create an OpenAI Gym in Webots.
@@ -61,8 +64,6 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         self.__timestep = int(self.getBasicTimeStep())
 
         # Do all other required initializations
-        self.obstacles = []
-        self.visited = set()
         self.reset()
 
         # Fill in according to the action space of Thymio
@@ -100,6 +101,8 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
 
         # initialize the sensors, reset the actuators, randomize the environment
         # See how in Lab 1 code
+        self.obstacles = []
+        self.visited = set()
         # Sensors
         self._init_sensors()
 
@@ -163,8 +166,8 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return {}
 
     def _set_velocities(self, action):
-        self.left_motor.setVelocity(max(min(action[0], 9), -9))
-        self.right_motor.setVelocity(max(min(action[1], 9), -9))
+        self.left_motor.setVelocity(max(min(action[0], 9.53), -9.53))
+        self.right_motor.setVelocity(max(min(action[1], 9.53), -9.53))
 
     def _act(self):
         for i in range(10):
@@ -194,7 +197,7 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         )
 
         if terminated:
-            print("--- EPISODE END ---")
+            print(f"--- EPISODE ENDED ---")
         return terminated
 
     def _determine_truncated(self):
@@ -255,7 +258,7 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         children_field = root.getField('children')
 
         for i in range(OBSTACLES_NUMBER):
-            position = self._random_position(OBSTACLES_MIN_RADIUS, OBSTACLES_MAX_RADIUS, 1)
+            position = self._random_position(OBSTACLES_MIN_RADIUS, OBSTACLES_MAX_RADIUS, 1.2)
             orientation = self._random_orientation()
             length = np.random.uniform(0.05, 0.2)
             width = np.random.uniform(0.05, 0.2)
@@ -303,12 +306,14 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
     def _get_position_on_grid(self):
         pos = self.getFromDef("ROBOT").getField("translation").getSFVec3f()
         gx = int(pos[0] / GRID_RESOLUTION)
-        gy = int(pos[2] / GRID_RESOLUTION)
+        gy = int(pos[1] / GRID_RESOLUTION)
         return (gx, gy)
     
     def _reward_linear_positive_velocity(self):
+        gs = self._get_normalize_g_sensors()
         return (REWARD_POSITVE_LINEAR_VELOCITY *
-                int(self.left_motor.getVelocity() > 0 and self.right_motor.getVelocity() > 0))
+                int(self.left_motor.getVelocity() > 0 and self.right_motor.getVelocity() > 0 
+                and gs[0] != 0 and gs[1] != 0))
     
     def _penalty_prox_obstacles(self, frontal_readings):
         return sum([-PENALTY_PROX_OBSTACLES * reading for reading in frontal_readings])
@@ -323,6 +328,49 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         else:
             self.visited.add((x, y))
             return REWARD_VISITED
+        
+
+class RolloutCSVLogger(BaseCallback):
+    def __init__(self, csv_path: str, verbose=0):
+        super().__init__(verbose)
+        self.csv_path = csv_path
+        self.header_written = False
+        self.filename = "rollout.csv"
+
+    def _on_step(self) -> bool:
+        return True
+    
+    def _on_rollout_end(self) -> None:
+# Get the latest training metrics from the model's logger
+        logger = self.model.logger
+        
+        # Extract values from the logger's name_to_value dict if available
+        name_to_value = getattr(logger, 'name_to_value', {})
+        
+        data = {
+            'timesteps': self.model.num_timesteps,
+            'learning_rate': self.model.lr_schedule(self.model.num_timesteps),
+            'entropy_loss': name_to_value.get('train/entropy_loss', 0),
+            'approx_kl': name_to_value.get('train/approx_kl', 0),
+            'loss': name_to_value.get('train/loss', 0),
+            'policy_gradient_loss': name_to_value.get('train/policy_gradient_loss', 0),
+            'clip_fraction': name_to_value.get('train/clip_fraction', 0),
+            'value_loss': name_to_value.get('train/value_loss', 0),
+            'explained_variance': name_to_value.get('train/explained_variance', 0),
+            'std': name_to_value.get('train/std', 0),
+            'n_updates': name_to_value.get('train/n_updates', self.num_timesteps // self.model.n_steps),
+            'clip_range': self.model.clip_range(self.model.num_timesteps),
+            'ep_len_mean': name_to_value.get('rollout/ep_len_mean', 0),
+            'ep_rew_mean': name_to_value.get('rollout/ep_rew_mean', 0),
+        }
+
+        # Write metrics after every rollout (training metrics will be 0 on first rollout)
+        file_exists = os.path.isfile(self.filename)
+        with open(self.filename, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=data.keys())
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(data)
 
 
 def main():
@@ -343,12 +391,13 @@ def main():
     print("CUDA device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")
 
     if os.path.exists(MODEL_PATH):
-        model = RecurrentPPO.load(MODEL_PATH, env)
+        model = PPO.load(MODEL_PATH, env, device="cpu")
+        # model = RecurrentPPO.load(MODEL_PATH, env, device="cuda:0" if torch.cuda.is_available() else "cpu")
     else:
-        model = RecurrentPPO(
-            "MlpLstmPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
+        model = PPO(
+            "MlpPolicy", env, device="cpu",
             n_steps=ROLLOUT_STEPS,
-            batch_size=64,
+            batch_size=100,
             ent_coef=0.02,
             clip_range=0.2,
             vf_coef=0.5,
@@ -356,7 +405,24 @@ def main():
             max_grad_norm=0.5,
             verbose=1
         )
-    model.learn(500000)
+        # model = RecurrentPPO(
+        #     "MlpPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
+        #     n_steps=ROLLOUT_STEPS,
+        #     batch_size=50,
+        #     ent_coef=0.02,
+        #     clip_range=0.2,
+        #     vf_coef=0.5,
+        #     learning_rate=3e-4,
+        #     max_grad_norm=0.5,
+        #     verbose=1
+        # )
+
+    checkpoint_callback = CheckpointCallback(save_freq=TOTAL_TIMESTEPS/4, save_path='./models/')
+    csv_logger = RolloutCSVLogger('rollout_stats.csv')
+
+    callback = CallbackList([checkpoint_callback, csv_logger])
+    model.learn(TOTAL_TIMESTEPS, callback=callback)
+
     model.save(MODEL_PATH)
 
     # Code to load a model and run it
