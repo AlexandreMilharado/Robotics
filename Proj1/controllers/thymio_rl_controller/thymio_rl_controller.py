@@ -25,7 +25,7 @@ except ImportError:
     sys.exit('Please make sure you have all dependencies installed.')
 
 
-MODEL_PATH = "RecurrentPPO_test_1"
+MODEL_PATH = "RecurrentPPO_test_1.zip"
 
 TIME_STEP = 5
 EPISODE_STEPS = 500
@@ -36,7 +36,7 @@ DEGREES_INCLINED = 7
 
 ROLLOUT_STEPS = EPISODE_STEPS * 4
 TOTAL_TIMESTEPS = ROLLOUT_STEPS * 250
-BATCH_SIZE = 64
+BATCH_SIZE = 50
 ENTROPY_COEFICIENT=0.02
 CLIP_RANGE=0.2
 VF_COEFICIENT=0.5
@@ -186,6 +186,7 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         total += self._penalty_prox_obstacles(self._get_normalize_h_sensors())
         total += self._penalty_ledge(self._get_normalize_g_sensors())
         total += self._reward_linear_positive_velocity()
+
         return total
 
     def _determine_terminated(self):
@@ -399,6 +400,7 @@ def main():
 
     if os.path.exists(MODEL_PATH):
         model = PPO.load(MODEL_PATH, env, device="cpu")
+        
         # model = RecurrentPPO.load(MODEL_PATH, env, device="cuda:0" if torch.cuda.is_available() else "cpu")
     else:
         model = PPO(
@@ -422,14 +424,14 @@ def main():
         #    max_grad_norm=MAX_GRAD_NORM,
         #    verbose=1
         #)
+        
+        checkpoint_callback = CheckpointCallback(save_freq=TOTAL_TIMESTEPS/4, save_path='./models/')
+        csv_logger = RolloutCSVLogger('rollout_stats.csv')
 
-    checkpoint_callback = CheckpointCallback(save_freq=TOTAL_TIMESTEPS/4, save_path='./models/')
-    csv_logger = RolloutCSVLogger('rollout_stats.csv')
+        callback = CallbackList([checkpoint_callback, csv_logger])
+        model.learn(TOTAL_TIMESTEPS, callback=callback)
 
-    callback = CallbackList([checkpoint_callback, csv_logger])
-    model.learn(TOTAL_TIMESTEPS, callback=callback)
-
-    model.save(MODEL_PATH)
+        model.save(MODEL_PATH)
 
     # Code to load a model and run it
     # For the RecurrentPPO case, consult its documentation
