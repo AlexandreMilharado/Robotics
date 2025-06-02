@@ -25,7 +25,8 @@ except ImportError:
     sys.exit('Please make sure you have all dependencies installed.')
 
 
-MODEL_PATH = "RecurrentPPO_test_1.zip"
+MODEL_PATH = "PPO_test_1.zip"
+CSV_PATH = "rollout_test_1.csv"
 
 TIME_STEP = 5
 EPISODE_STEPS = 500
@@ -33,6 +34,12 @@ LEDGE_THRESHOLD = 100
 PROX_THRESHOLD = 0.9
 ACC_THRESHOLD = 2
 DEGREES_INCLINED = 7
+
+OBSTACLES_NUMBER = 10
+OBSTACLES_MIN_RADIUS = 0.35
+OBSTACLES_MAX_RADIUS = 0.67
+
+GRID_RESOLUTION = 0.117/15
 
 ROLLOUT_STEPS = EPISODE_STEPS * 4
 TOTAL_TIMESTEPS = ROLLOUT_STEPS * 250
@@ -42,12 +49,6 @@ CLIP_RANGE=0.2
 VF_COEFICIENT=0.5
 LEARNING_RATE=3e-4
 MAX_GRAD_NORM=0.5
-
-OBSTACLES_NUMBER = 10
-OBSTACLES_MIN_RADIUS = 0.35
-OBSTACLES_MAX_RADIUS = 0.67
-
-GRID_RESOLUTION = 0.117/15
 
 REWARD_POSITVE_LINEAR_VELOCITY = 0.7
 REWARD_VISITED = 1
@@ -343,7 +344,7 @@ class RolloutCSVLogger(BaseCallback):
         super().__init__(verbose)
         self.csv_path = csv_path
         self.header_written = False
-        self.filename = "rollout.csv"
+        self.filename = CSV_PATH
 
     def _on_step(self) -> bool:
         return True
@@ -424,7 +425,7 @@ def main():
         #    max_grad_norm=MAX_GRAD_NORM,
         #    verbose=1
         #)
-        
+
         checkpoint_callback = CheckpointCallback(save_freq=TOTAL_TIMESTEPS/4, save_path='./models/')
         csv_logger = RolloutCSVLogger('rollout_stats.csv')
 
