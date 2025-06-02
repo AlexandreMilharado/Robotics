@@ -29,12 +29,19 @@ MODEL_PATH = "RecurrentPPO_test_1"
 
 TIME_STEP = 5
 EPISODE_STEPS = 500
-ROLLOUT_STEPS = EPISODE_STEPS * 4
-TOTAL_TIMESTEPS = ROLLOUT_STEPS * 250
 LEDGE_THRESHOLD = 100
 PROX_THRESHOLD = 0.9
 ACC_THRESHOLD = 2
 DEGREES_INCLINED = 7
+
+ROLLOUT_STEPS = EPISODE_STEPS * 4
+TOTAL_TIMESTEPS = ROLLOUT_STEPS * 250
+BATCH_SIZE = 64
+ENTROPY_COEFICIENT=0.02
+CLIP_RANGE=0.2
+VF_COEFICIENT=0.5
+LEARNING_RATE=3e-4
+MAX_GRAD_NORM=0.5
 
 OBSTACLES_NUMBER = 10
 OBSTACLES_MIN_RADIUS = 0.35
@@ -45,7 +52,7 @@ GRID_RESOLUTION = 0.117/15
 REWARD_POSITVE_LINEAR_VELOCITY = 0.7
 REWARD_VISITED = 1
 PENALTY_PROX_OBSTACLES = 0.5
-PENALTY_LEDGE_OBSTACLES = 0.7
+PENALTY_LEDGE_OBSTACLES = 1
 
 #
 # Structure of a class to create an OpenAI Gym in Webots.
@@ -396,26 +403,25 @@ def main():
     else:
         model = PPO(
             "MlpPolicy", env, device="cpu",
-            n_steps=ROLLOUT_STEPS,
-            batch_size=100,
-            ent_coef=0.02,
-            clip_range=0.2,
-            vf_coef=0.5,
-            learning_rate=3e-4,
-            max_grad_norm=0.5,
+            batch_size=BATCH_SIZE,
+            ent_coef=ENTROPY_COEFICIENT,
+            clip_range=CLIP_RANGE,
+            vf_coef=VF_COEFICIENT,
+            learning_rate=LEARNING_RATE,
+            max_grad_norm=MAX_GRAD_NORM,
             verbose=1
         )
-        # model = RecurrentPPO(
-        #     "MlpPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
-        #     n_steps=ROLLOUT_STEPS,
-        #     batch_size=50,
-        #     ent_coef=0.02,
-        #     clip_range=0.2,
-        #     vf_coef=0.5,
-        #     learning_rate=3e-4,
-        #     max_grad_norm=0.5,
-        #     verbose=1
-        # )
+        
+        #model = RecurrentPPO(
+        #    "MlpPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
+        #    batch_size=BATCH_SIZE,
+        #    ent_coef=ENTROPY_COEFICIENT,
+        #    clip_range=CLIP_RANGE,
+        #    vf_coef=VF_COEFICIENT,
+        #    learning_rate=LEARNING_RATE,
+        #    max_grad_norm=MAX_GRAD_NORM,
+        #    verbose=1
+        #)
 
     checkpoint_callback = CheckpointCallback(save_freq=TOTAL_TIMESTEPS/4, save_path='./models/')
     csv_logger = RolloutCSVLogger('rollout_stats.csv')
