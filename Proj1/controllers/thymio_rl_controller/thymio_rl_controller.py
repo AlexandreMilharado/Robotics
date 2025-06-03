@@ -46,7 +46,7 @@ GRID_RESOLUTION = 0.117/4
 ROLLOUT_STEPS = EPISODE_STEPS * 4
 TOTAL_TIMESTEPS = ROLLOUT_STEPS * 250
 BATCH_SIZE = 64
-ENTROPY_COEFICIENT=0.02
+ENTROPY_COEFICIENT=0.005
 CLIP_RANGE=0.2
 VF_COEFICIENT=0.5
 LEARNING_RATE=3e-4
@@ -55,8 +55,8 @@ MAX_GRAD_NORM=0.5
 REWARD_POSITVE_LINEAR_VELOCITY = 0.7
 REWARD_VISITED = 3
 PENALTY_PROX_OBSTACLES = 0.5
-PENALTY_LEDGE_OBSTACLES = 1
-PENALTY_LEDGE_FALL = 0
+PENALTY_LEDGE_OBSTACLES = 2
+PENALTY_LEDGE_FALL = 0.2
 
 
 # Structure of a class to create an OpenAI Gym in Webots.
@@ -162,7 +162,7 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         truncated = self._determine_truncated()
 
         # compute the reward that results from applying the action in the current state
-        reward = self._get_reward(terminated or truncated)
+        reward = self._get_reward(terminated)
         self.total_episode_reward += reward
 
         # aditional info
@@ -204,22 +204,15 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return total
 
     def _determine_terminated(self):
-        acc_x, acc_y, acc_z = self.acc_sensor.getValues()
+        ax, ay, az = self.acc_sensor.getValues()  # your accelerometer readings
 
-        roll = math.atan2(acc_y, acc_z)
-        pitch = math.atan2(-acc_x, math.sqrt(acc_y**2 + acc_z**2))
+        roll = math.atan2(ay, az)
+        roll_degrees = math.degrees(roll)
 
-        roll_deg = math.degrees(roll)
-        pitch_deg = math.degrees(pitch)
-        #print("(pitch, roll) = (" + str(roll_deg) + ", " + str(pitch_deg) + ")")
-
-        terminated = (
-            self.getFromDef("ROBOT").getField("translation").getSFVec3f()[2] < 0
-            or abs(pitch_deg) > DEGREES_INCLINED
-        )
+        terminated = roll_degrees > 3 or roll_degrees < 0
 
         if terminated:
-            print(f"--- EPISODE ENDED ---")
+            print("--- EPISODE ENDED ---")
         return terminated
 
     def _determine_truncated(self):
@@ -369,7 +362,7 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
                 return REWARD_VISITED
         
     def _penalty_fall(self, current_reward, done):
-        return PENALTY_LEDGE_FALL * (self.total_episode_reward + current_reward) * int(done)
+        return -PENALTY_LEDGE_FALL * (self.total_episode_reward + current_reward) * int(done)
         
 
 class RolloutCSVLogger(BaseCallback):
