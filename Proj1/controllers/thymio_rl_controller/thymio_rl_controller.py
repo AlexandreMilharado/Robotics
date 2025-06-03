@@ -17,6 +17,8 @@ try:
     from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback, CallbackList
     from sb3_contrib import RecurrentPPO
     from stable_baselines3 import PPO
+    from stable_baselines3.common.monitor import Monitor
+    from stable_baselines3.common.utils import get_schedule_fn
     from controller import Supervisor, Motor, DistanceSensor
     import csv
 
@@ -39,11 +41,11 @@ OBSTACLES_NUMBER = 10
 OBSTACLES_MIN_RADIUS = 0.35
 OBSTACLES_MAX_RADIUS = 0.67
 
-GRID_RESOLUTION = 0.117/15
+GRID_RESOLUTION = 0.117/4
 
 ROLLOUT_STEPS = EPISODE_STEPS * 4
 TOTAL_TIMESTEPS = ROLLOUT_STEPS * 250
-BATCH_SIZE = 50
+BATCH_SIZE = 64
 ENTROPY_COEFICIENT=0.02
 CLIP_RANGE=0.2
 VF_COEFICIENT=0.5
@@ -51,13 +53,14 @@ LEARNING_RATE=3e-4
 MAX_GRAD_NORM=0.5
 
 REWARD_POSITVE_LINEAR_VELOCITY = 0.7
-REWARD_VISITED = 1
+REWARD_VISITED = 3
 PENALTY_PROX_OBSTACLES = 0.5
 PENALTY_LEDGE_OBSTACLES = 1
+PENALTY_LEDGE_FALL = 0
 
-#
+
 # Structure of a class to create an OpenAI Gym in Webots.
-#
+
 class OpenAIGymEnvironment(Supervisor, gym.Env):
     
     def __init__(self, max_episode_steps = EPISODE_STEPS):
@@ -77,8 +80,8 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         # Fill in according to the action space of Thymio
         # See: https://www.gymlibrary.dev/api/spaces/
         self.action_space = gym.spaces.Box(
-            low=np.array([-self.left_motor.getMaxVelocity(), -self.right_motor.getMaxVelocity()]),
-            high=np.array([self.left_motor.getMaxVelocity(), self.right_motor.getMaxVelocity()]),
+            low=np.array([-1, -1]),
+            high=np.array([1, 1]),
             dtype=np.float64)
 
         # Fill in according to Thymio's sensors
@@ -106,11 +109,14 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         # Reset Simulation
         self._sim_reset()
         self.__n = 0
+        self.total_episode_reward = 0
 
         # initialize the sensors, reset the actuators, randomize the environment
         # See how in Lab 1 code
         self.obstacles = []
         self.visited = set()
+        self.last_grid_position = None
+
         # Sensors
         self._init_sensors()
 
@@ -151,15 +157,16 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         # set the state that resulted from applying the action (consulting the robot sensors)
         self.state = self._get_obs()
 
-        # compute the reward that results from applying the action in the current state
-        reward = self._get_reward()
-
         # set termination and truncation flags (bools)
         terminated = self._determine_terminated()
         truncated = self._determine_truncated()
 
+        # compute the reward that results from applying the action in the current state
+        reward = self._get_reward(terminated or truncated)
+        self.total_episode_reward += reward
+
         # aditional info
-        info = self._get_info()
+        info = self._get_info(terminated or truncated)
 
         return self.state.astype(np.float64), reward, terminated, truncated, info
     
@@ -170,24 +177,30 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
 
         return np.array(state)
     
-    def _get_info(self):
-        return {}
+    def _get_info(self, done):
+        info = {}
+        if done:
+            info['episode'] = {
+                'r': self.total_episode_reward,
+                'l': self.__n
+            }
+        return info
 
     def _set_velocities(self, action):
-        self.left_motor.setVelocity(max(min(action[0], 9.53), -9.53))
-        self.right_motor.setVelocity(max(min(action[1], 9.53), -9.53))
+        self.left_motor.setVelocity(max(min(action[0], 1), -1) * self.left_motor.getMaxVelocity() )
+        self.right_motor.setVelocity(max(min(action[1], 1), -1) * self.right_motor.getMaxVelocity())
 
     def _act(self):
         for i in range(10):
             super().step(self.__timestep)
 
-    def _get_reward(self):
+    def _get_reward(self, done):
         total = 0
         total += self._reward_exploration()
         total += self._penalty_prox_obstacles(self._get_normalize_h_sensors())
         total += self._penalty_ledge(self._get_normalize_g_sensors())
         total += self._reward_linear_positive_velocity()
-
+        total += self._penalty_fall(total, done)
         return total
 
     def _determine_terminated(self):
@@ -319,10 +332,21 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return (gx, gy)
     
     def _reward_linear_positive_velocity(self):
+        left_vel = self.left_motor.getVelocity()
+        right_vel = self.right_motor.getVelocity()
+
+        both_forward = left_vel > 0 and right_vel > 0
+        aligned = abs(left_vel - right_vel) < 0.05
+
         gs = self._get_normalize_g_sensors()
-        return (REWARD_POSITVE_LINEAR_VELOCITY *
-                int(self.left_motor.getVelocity() > 0 and self.right_motor.getVelocity() > 0 
-                and gs[0] != 0 and gs[1] != 0))
+        on_ground = gs[0] != 0 and gs[1] != 0
+
+        if both_forward and aligned and on_ground:
+            return REWARD_POSITVE_LINEAR_VELOCITY
+        elif not both_forward and on_ground:
+            return -REWARD_POSITVE_LINEAR_VELOCITY
+        else:
+            return 0
     
     def _penalty_prox_obstacles(self, frontal_readings):
         return sum([-PENALTY_PROX_OBSTACLES * reading for reading in frontal_readings])
@@ -331,34 +355,41 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return sum([-PENALTY_LEDGE_OBSTACLES * int(1 - reading) for reading in ground_sensors])
 
     def _reward_exploration(self):
-        x, y = self._get_position_on_grid()
-        if (x, y) in self.visited:
-            return -REWARD_VISITED
-        else:
-            self.visited.add((x, y))
-            return REWARD_VISITED
+            x, y = self._get_position_on_grid()
+
+            if (x, y) == self.last_grid_position:
+                return 0
+
+            self.last_grid_position = (x, y)
+
+            if (x, y) in self.visited:
+                return -REWARD_VISITED
+            else:
+                self.visited.add((x, y))
+                return REWARD_VISITED
+        
+    def _penalty_fall(self, current_reward, done):
+        return PENALTY_LEDGE_FALL * (self.total_episode_reward + current_reward) * int(done)
         
 
 class RolloutCSVLogger(BaseCallback):
     def __init__(self, csv_path: str, verbose=0):
         super().__init__(verbose)
-        self.csv_path = csv_path
         self.header_written = False
-        self.filename = CSV_PATH
+        self.filename = csv_path
 
     def _on_step(self) -> bool:
         return True
     
     def _on_rollout_end(self) -> None:
-# Get the latest training metrics from the model's logger
         logger = self.model.logger
-        
-        # Extract values from the logger's name_to_value dict if available
         name_to_value = getattr(logger, 'name_to_value', {})
-        
+
+        ep_rew_mean = sum(self.training_env.envs[0].get_episode_rewards())/len(self.training_env.envs[0].get_episode_rewards())
+        ep_len_mean = sum(self.training_env.envs[0].get_episode_lengths())/len(self.training_env.envs[0].get_episode_lengths())
         data = {
             'timesteps': self.model.num_timesteps,
-            'learning_rate': self.model.lr_schedule(self.model.num_timesteps),
+            'learning_rate': self.model.lr_schedule(1 - (self.model.num_timesteps / TOTAL_TIMESTEPS)),
             'entropy_loss': name_to_value.get('train/entropy_loss', 0),
             'approx_kl': name_to_value.get('train/approx_kl', 0),
             'loss': name_to_value.get('train/loss', 0),
@@ -369,10 +400,11 @@ class RolloutCSVLogger(BaseCallback):
             'std': name_to_value.get('train/std', 0),
             'n_updates': name_to_value.get('train/n_updates', self.num_timesteps // self.model.n_steps),
             'clip_range': self.model.clip_range(self.model.num_timesteps),
-            'ep_len_mean': name_to_value.get('rollout/ep_len_mean', 0),
-            'ep_rew_mean': name_to_value.get('rollout/ep_rew_mean', 0),
+            'ep_len_mean': ep_len_mean,
+            'ep_rew_mean': ep_rew_mean,
         }
 
+        
         # Write metrics after every rollout (training metrics will be 0 on first rollout)
         file_exists = os.path.isfile(self.filename)
         with open(self.filename, 'a', newline='') as f:
@@ -380,12 +412,19 @@ class RolloutCSVLogger(BaseCallback):
             if not file_exists:
                 writer.writeheader()
             writer.writerow(data)
+            
+def exp_schedule(initial_value, decay_rate=0.9):
+    def scheduler(progress_remaining):
+        progress_remaining = max(0.0, min(1.0, progress_remaining))
+        lr = initial_value * (progress_remaining ** decay_rate)
+        return lr
 
+    return scheduler
 
 def main():
     # Create the environment to train / test the robot
     env = OpenAIGymEnvironment()
-
+    env = Monitor(env) 
     # Initializing environment
     #env = gym.make('WebotsEnv-v0')
 
@@ -410,13 +449,13 @@ def main():
             ent_coef=ENTROPY_COEFICIENT,
             clip_range=CLIP_RANGE,
             vf_coef=VF_COEFICIENT,
-            learning_rate=LEARNING_RATE,
+            learning_rate=exp_schedule(LEARNING_RATE),
             max_grad_norm=MAX_GRAD_NORM,
             verbose=1
         )
         
-        #model = RecurrentPPO(
-        #    "MlpPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
+        # model = RecurrentPPO(
+        #    "MlpLstmPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
         #    batch_size=BATCH_SIZE,
         #    ent_coef=ENTROPY_COEFICIENT,
         #    clip_range=CLIP_RANGE,
@@ -424,24 +463,27 @@ def main():
         #    learning_rate=LEARNING_RATE,
         #    max_grad_norm=MAX_GRAD_NORM,
         #    verbose=1
-        #)
+        # )
 
         checkpoint_callback = CheckpointCallback(save_freq=TOTAL_TIMESTEPS/4, save_path='./models/')
-        csv_logger = RolloutCSVLogger('rollout_stats.csv')
+        csv_logger = RolloutCSVLogger(CSV_PATH)
 
         callback = CallbackList([checkpoint_callback, csv_logger])
         model.learn(TOTAL_TIMESTEPS, callback=callback)
 
         model.save(MODEL_PATH)
 
+        ###
+
     # Code to load a model and run it
     # For the RecurrentPPO case, consult its documentation
-    obs, _ = env.reset()  # Handle new reset return format
-    for _ in range(100000):
-        action, _states = model.predict(obs)
-        obs, reward, terminated, truncated, info = env.step(action)  # Handle new step return format
-        if terminated or truncated:
-            obs, _ = env.reset()
+    # obs, _ = env.reset()  # Handle new reset return format
+    # for _ in range(100000):
+    #     action, _states = model.predict(obs)
+    #     obs, reward, terminated, truncated, info = env.step(action)  # Handle new step return format
+    #     if terminated or truncated:
+    #         obs, _ = env.reset()
+        
 
 
 if __name__ == '__main__':
