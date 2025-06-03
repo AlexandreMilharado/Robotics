@@ -27,8 +27,8 @@ except ImportError:
     sys.exit('Please make sure you have all dependencies installed.')
 
 
-MODEL_PATH = "PPO_test_1.zip"
-CSV_PATH = "rollout_test_1.csv"
+MODEL_PATH = "PPO_test_3.zip"
+CSV_PATH = "rollout_test_3.csv"
 
 TIME_STEP = 5
 EPISODE_STEPS = 500
@@ -53,7 +53,7 @@ LEARNING_RATE=3e-4
 MAX_GRAD_NORM=0.5
 
 REWARD_POSITVE_LINEAR_VELOCITY = 0.7
-REWARD_VISITED = 3
+REWARD_VISITED = 5
 PENALTY_PROX_OBSTACLES = 0.5
 PENALTY_LEDGE_OBSTACLES = 2
 PENALTY_LEDGE_FALL = 0.2
@@ -116,6 +116,7 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         self.obstacles = []
         self.visited = set()
         self.last_grid_position = None
+        self.stuck_counter = 0
 
         # Sensors
         self._init_sensors()
@@ -158,6 +159,7 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         self.state = self._get_obs()
 
         # set termination and truncation flags (bools)
+        self._wheel_stuck(action)
         terminated = self._determine_terminated()
         truncated = self._determine_truncated()
 
@@ -204,16 +206,36 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return total
 
     def _determine_terminated(self):
-        ax, ay, az = self.acc_sensor.getValues()  # your accelerometer readings
+        fall = (
+            self.getFromDef("ROBOT").getField("translation").getSFVec3f()[2] < 0
+        )
 
-        roll = math.atan2(ay, az)
-        roll_degrees = math.degrees(roll)
+        stuck = self.stuck_counter > 30
 
-        terminated = roll_degrees > 3 or roll_degrees < 0
-
-        if terminated:
-            print("--- EPISODE ENDED ---")
+        terminated = stuck or fall
+        if(terminated):
+            print(f"--- EPISODE ENDED ---")
         return terminated
+
+    
+    def _wheel_stuck(self, action):
+
+        left_speed, right_speed = action[0], action[1]
+
+        current_position = self._get_position_on_grid()
+
+        same_pos = (current_position == self.last_grid_position)
+
+        motor_active = abs(left_speed) > 0.1 or abs(right_speed) > 0.1
+
+        stuck = same_pos and motor_active
+
+        if stuck:
+            self.stuck_counter += 1
+        else:
+            self.stuck_counter = 0
+        
+        return stuck
 
     def _determine_truncated(self):
         return self.__n > self.__max_n
