@@ -8,7 +8,7 @@ from p1_util.robot_class import Agent, SimulationEndedError
 from functools import partial
 
 
-np.random.seed(2025)                                                  # Seed for Reproducibility
+np.random.seed(2025)                                                    # Seed for Reproducibility
 
 BRAITENBERG = { "MAX_VALUE_WEIGHT": 1,                                  # Maximum Value for Gene
                 "MIN_VALUE_WEIGHT" : -1,                                # Minimum Value for Gene
