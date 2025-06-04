@@ -367,24 +367,22 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return sum([-PENALTY_PROX_OBSTACLES * reading for reading in frontal_readings])
     
     def _penalty_ledge(self, ground_sensors):
-        return sum([-PENALTY_LEDGE_OBSTACLES * int(1 - reading) for reading in ground_sensors])
+        avg_vel = (self.left_motor.getVelocity() + self.right_motor.getVelocity()) / (2 * 9.53)
+        return sum([-PENALTY_LEDGE_OBSTACLES * int(1 - reading) * int(avg_vel > 0) for reading in ground_sensors])
 
     def _reward_exploration(self):
-            x, y = self._get_position_on_grid()
+        x, y = self._get_position_on_grid()
 
-            if (x, y) == self.last_grid_position:
-                return 0
+        if (x, y) == self.last_grid_position:
+            return 0
 
-            self.last_grid_position = (x, y)
-
-            if (x, y) in self.visited:
-                return -REWARD_VISITED
-            else:
-                self.visited.add((x, y))
-                return REWARD_VISITED
+        self.last_grid_position = (x, y)
+        self.visited.add((x, y))
+        
+        return REWARD_VISITED
         
     def _penalty_fall(self, current_reward, done):
-        return -((PENALTY_LEDGE_FALL*100) - PENALTY_LEDGE_FALL * abs(self.total_episode_reward + current_reward)) * int(done)
+        return -((PENALTY_LEDGE_FALL*100) + PENALTY_LEDGE_FALL * abs(self.total_episode_reward + current_reward)) * int(done)
         
 
 class RolloutCSVLogger(BaseCallback):
