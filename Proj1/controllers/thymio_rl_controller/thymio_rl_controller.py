@@ -384,7 +384,7 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
                 return REWARD_VISITED
         
     def _penalty_fall(self, current_reward, done):
-        return -PENALTY_LEDGE_FALL * (self.total_episode_reward + current_reward) * int(done)
+        return -PENALTY_LEDGE_FALL * abs(self.total_episode_reward + current_reward) * int(done)
         
 
 class RolloutCSVLogger(BaseCallback):
