@@ -45,7 +45,7 @@ GRID_RESOLUTION = 0.117/4
 
 ROLLOUT_STEPS = EPISODE_STEPS * 4
 TOTAL_TIMESTEPS = ROLLOUT_STEPS * 250
-BATCH_SIZE = 64
+BATCH_SIZE = 50
 ENTROPY_COEFICIENT=0.005
 CLIP_RANGE=0.2
 VF_COEFICIENT=0.5
@@ -57,6 +57,7 @@ REWARD_VISITED = 5
 PENALTY_PROX_OBSTACLES = 0.5
 PENALTY_LEDGE_OBSTACLES = 2
 PENALTY_LEDGE_FALL = 0.2
+PENALTY_VISITED = 0
 
 
 # Structure of a class to create an OpenAI Gym in Webots.
@@ -377,9 +378,12 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
             return 0
 
         self.last_grid_position = (x, y)
-        self.visited.add((x, y))
-        
-        return REWARD_VISITED
+
+        if (x, y) in self.visited:
+            return -PENALTY_VISITED
+        else:
+            self.visited.add((x, y))
+            return REWARD_VISITED
         
     def _penalty_fall(self, current_reward, done):
         return -((PENALTY_LEDGE_FALL*100) + PENALTY_LEDGE_FALL * abs(self.total_episode_reward + current_reward)) * int(done)
@@ -458,6 +462,7 @@ def main():
     else:
         model = PPO(
             "MlpPolicy", env, device="cpu",
+            n_steps=ROLLOUT_STEPS,
             batch_size=BATCH_SIZE,
             ent_coef=ENTROPY_COEFICIENT,
             clip_range=CLIP_RANGE,
