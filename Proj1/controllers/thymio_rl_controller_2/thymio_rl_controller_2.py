@@ -26,9 +26,9 @@ try:
 except ImportError:
     sys.exit('Please make sure you have all dependencies installed.')
 
-MODEL_LOAD = "PPO_test_8.zip"
-MODEL_PATH = "PPO_test_8___4.zip"
-CSV_PATH = "rollout_test_8___4.csv"
+MODEL_LOAD = "experiments/RPPO/RPPO.zip"
+MODEL_PATH = "RPPO.zip"
+CSV_PATH = "rollout.csv"
 
 TIME_STEP = 5
 EPISODE_STEPS = 256
@@ -67,6 +67,8 @@ PENALTY_LEDGE_FALL = 100
 PENALTY_TURN = 1
 PENALTY_STUCK = 0
 
+#TODO Mudar
+IS_RECURRENT = False
 
 # Structure of a class to create an OpenAI Gym in Webots.
 
@@ -517,52 +519,61 @@ def main():
     print("CUDA device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")
 
     if os.path.exists(MODEL_LOAD):
-        #model = PPO.load(MODEL_PATH, env, device="cpu")
+        if IS_RECURRENT:
+            model = RecurrentPPO.load(MODEL_LOAD, env, device="cuda:0" if torch.cuda.is_available() else "cpu")
+        else:
+            model = PPO.load(MODEL_PATH, env, device="cpu")
         
-        model = RecurrentPPO.load(MODEL_LOAD, env, device="cuda:0" if torch.cuda.is_available() else "cpu")
     else:
-        #model = PPO(
-        #    "MlpPolicy", env, device="cpu",
-        #    batch_size=BATCH_SIZE,
-        #    ent_coef=ENTROPY_COEFICIENT,
-        #    clip_range=CLIP_RANGE,
-        #    vf_coef=VF_COEFICIENT,
-        #    learning_rate=exp_schedule(LEARNING_RATE),
-        #    max_grad_norm=MAX_GRAD_NORM,
-        #    verbose=1
-        #)
-        
-        model = RecurrentPPO(
-            "MlpLstmPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
-            n_steps=ROLLOUT_STEPS,
-            batch_size=BATCH_SIZE,
-            ent_coef=ENTROPY_COEFICIENT,
-            clip_range=CLIP_RANGE,
-            vf_coef=VF_COEFICIENT,
-            learning_rate=LEARNING_RATE,
-            max_grad_norm=MAX_GRAD_NORM,
-            verbose=1
-        )
+        if IS_RECURRENT:
+            model = RecurrentPPO(
+                "MlpLstmPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
+                n_steps=ROLLOUT_STEPS,
+                batch_size=BATCH_SIZE,
+                ent_coef=ENTROPY_COEFICIENT,
+                clip_range=CLIP_RANGE,
+                vf_coef=VF_COEFICIENT,
+                learning_rate=LEARNING_RATE,
+                max_grad_norm=MAX_GRAD_NORM,
+                verbose=1
+            )
+        else:
+            model = PPO(
+                "MlpPolicy", env, device="cpu",
+                batch_size=BATCH_SIZE,
+                ent_coef=ENTROPY_COEFICIENT,
+                clip_range=CLIP_RANGE,
+                vf_coef=VF_COEFICIENT,
+                learning_rate=exp_schedule(LEARNING_RATE),
+                max_grad_norm=MAX_GRAD_NORM,
+                verbose=1
+            )
 
-    checkpoint_callback = CheckpointCallback(save_freq=TOTAL_TIMESTEPS/4, save_path='./models/')
-    csv_logger = RolloutCSVLogger(CSV_PATH)
+        checkpoint_callback = CheckpointCallback(save_freq=TOTAL_TIMESTEPS/4, save_path='./models/')
+        csv_logger = RolloutCSVLogger(CSV_PATH)
 
-    callback = CallbackList([checkpoint_callback, csv_logger])
-    model.learn(TOTAL_TIMESTEPS, callback=callback)
+        callback = CallbackList([checkpoint_callback, csv_logger])
+        model.learn(TOTAL_TIMESTEPS, callback=callback)
 
-    model.save(MODEL_PATH)
+        model.save(MODEL_PATH)
 
         ###
 
     # Code to load a model and run it
-    # For the RecurrentPPO case, consult its documentation
-    #obs, _ = env.reset()  # Handle new reset return format
-    #for _ in range(100000):
-    #    action, _states = model.predict(obs)
-    #    obs, reward, terminated, truncated, info = env.step(action)  # Handle new step return format
-    #    if terminated or truncated:
-    #        obs, _ = env.reset()
-        
+    if IS_RECURRENT:
+        obs = env.reset()  # Handle new reset return format
+        for _ in range(100000):
+            action, _states = model.predict(obs)
+            obs, reward, terminated, info = env.step(action)  # Handle new step return format
+            if terminated or truncated:
+                obs = env.reset()
+    else:
+        obs, _ = env.reset()  # Handle new reset return format
+        for _ in range(100000):
+            action, _states = model.predict(obs)
+            obs, reward, terminated, truncated, info = env.step(action)  # Handle new step return format
+            if terminated or truncated:
+                obs, _ = env.reset()
 
 
 if __name__ == '__main__':

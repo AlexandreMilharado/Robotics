@@ -28,8 +28,8 @@ except ImportError:
     sys.exit('Please make sure you have all dependencies installed.')
 
 
-MODEL_PATH = "PPO_test_3.zip"
-CSV_PATH = "rollout_test_3.csv"
+MODEL_PATH = "experiments/all/PPO.zip"
+CSV_PATH = "rollout.csv"
 
 TIME_STEP = 5
 EPISODE_STEPS = 500
@@ -60,6 +60,8 @@ PENALTY_PROX_OBSTACLES = (EPISODE_STEPS/10)/EPISODE_STEPS
 PENALTY_LEDGE_OBSTACLES = (EPISODE_STEPS/3)/EPISODE_STEPS
 PENALTY_LEDGE_FALL = (2*EPISODE_STEPS/3)/EPISODE_STEPS
 
+#TODO Mudar
+IS_RECURRENT = False
 
 # Structure of a class to create an OpenAI Gym in Webots.
 
@@ -522,33 +524,31 @@ def main():
     print("CUDA device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")
 
     if os.path.exists(MODEL_PATH):
-        model = PPO.load(MODEL_PATH, env, device="cpu")
-        print("HERE")
-        # model = RecurrentPPO.load(MODEL_PATH, env, device="cuda:0" if torch.cuda.is_available() else "cpu")
-    else:
-        policy_kwargs = dict(
-            activation_fn=nn.ReLU
-        )
-        model = PPO("MlpPolicy", env, device="cpu",
-            policy_kwargs=policy_kwargs,
-            n_steps=ROLLOUT_STEPS,
+        if IS_RECURRENT:
+            model = RecurrentPPO.load(MODEL_PATH, env, device="cuda:0" if torch.cuda.is_available() else "cpu")
+        else:
+            model = PPO.load(MODEL_PATH, env, device="cpu")
+    else:      
+        if IS_RECURRENT:
+            env = DummyVecEnv([lambda: env])
+            model = RecurrentPPO(
+            "MlpLstmPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
+                n_steps=128,
             batch_size=BATCH_SIZE,
-            ent_coef=ENTROPY_COEFICIENT,
-            clip_range=CLIP_RANGE,
-            vf_coef=VF_COEFICIENT,
             learning_rate=LEARNING_RATE,
-            max_grad_norm=MAX_GRAD_NORM,
             verbose=1
-        )
-        
-        # env = DummyVecEnv([lambda: env])
-        # model = RecurrentPPO(
-        #    "MlpLstmPolicy", env, device="cuda:0" if torch.cuda.is_available() else "cpu",
-        #     n_steps=128,
-        #    batch_size=BATCH_SIZE,
-        #    learning_rate=LEARNING_RATE,
-        #    verbose=1
-        # )
+            )
+        else:
+            model = PPO("MlpPolicy", env, device="cpu",
+                n_steps=ROLLOUT_STEPS,
+                batch_size=BATCH_SIZE,
+                ent_coef=ENTROPY_COEFICIENT,
+                clip_range=CLIP_RANGE,
+                vf_coef=VF_COEFICIENT,
+                learning_rate=LEARNING_RATE,
+                max_grad_norm=MAX_GRAD_NORM,
+                verbose=1
+            )
 
         checkpoint_callback = CheckpointCallback(save_freq=TOTAL_TIMESTEPS/4, save_path='./models/')
         csv_logger = RolloutCSVLogger(CSV_PATH)
@@ -558,16 +558,21 @@ def main():
 
         model.save(MODEL_PATH)
 
-        ###
-
     # Code to load a model and run it
-    # For the RecurrentPPO case, consult its documentation
-    obs,_ = env.reset()  # Handle new reset return format
-    for _ in range(100000):
-        action, _states = model.predict(obs, deterministic=True)
-        obs, reward, terminated, truncated, info = env.step(action)  # Handle new step return format
-        if terminated:
-            obs, _ = env.reset()
+    if IS_RECURRENT:
+        obs = env.reset()  # Handle new reset return format
+        for _ in range(100000):
+            action, _states = model.predict(obs)
+            obs, reward, terminated, info = env.step(action)  # Handle new step return format
+            if terminated or truncated:
+                obs = env.reset()
+    else:
+        obs, _ = env.reset()  # Handle new reset return format
+        for _ in range(100000):
+            action, _states = model.predict(obs)
+            obs, reward, terminated, truncated, info = env.step(action)  # Handle new step return format
+            if terminated or truncated:
+                obs, _ = env.reset()
         
 
 

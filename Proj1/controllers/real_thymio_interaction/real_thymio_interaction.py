@@ -1,14 +1,21 @@
 import numpy as np
 from stable_baselines3 import PPO
+from sb3_contrib import RecurrentPPO
 import threading
 import time
 import asyncio
 from tdmclient import ClientAsync
 
+#TODO Mudar 
+IS_RECURRENT = False
+
 class PPOThymioController:
-    def __init__(self, model_path):
+    def __init__(self):
         # Load trained PPO model
-        self.model = PPO.load(model_path, device="cpu")
+        if IS_RECURRENT:
+            self.model = RecurrentPPO.load("RPPO.zip", device="cpu")
+        else:
+            self.model = PPO.load("PPO.zip", device="cpu")
         
         # Sensor data
         self.prox_sensor = None
@@ -132,12 +139,8 @@ class PPOThymioController:
         self.ppo_control_loop()
 
 def main():
-    MODEL_PATH = "PPO_test_3.zip"
     
-    print("Starting PPO-controlled Thymio...")
-    print("Press Ctrl+C to stop")
-    
-    controller = PPOThymioController(MODEL_PATH)
+    controller = PPOThymioController()
     controller.run()
 
 if __name__ == "__main__":
