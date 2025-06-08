@@ -54,6 +54,7 @@ class PPOThymioController:
         """Convert PPO action to motor commands"""
         # Scale to Thymio motor range (-500 to 500)
         #TODO verificar se é para 500
+        action = np.array(action).flatten()  # Ensures it's a 1D array
         self.left_motor = int(np.clip(action[0] * 200, -500, 500))
         self.right_motor = int(np.clip(action[1] * 200, -500, 500))
     
@@ -81,43 +82,54 @@ class PPOThymioController:
             await comm_loop()
     
     def ppo_control_loop(self):
-        """Main PPO control loop"""
         print("PPO controller starting...")
-        
-        # Wait for sensors to be ready
+
         while not self.sensors_ready:
             time.sleep(0.1)
-        
+
         print("PPO taking control of Thymio!")
         step_count = 0
-        
+
+        # Recurrent PPO requires lstm_states and done flag
+        lstm_states = None
+        done = False
+
         try:
             while self.running:
-                # Get current observation
                 obs = self.create_observation()
-                
+
                 if obs is not None:
-                    # PPO decides what to do
-                    action, _states = self.model.predict(obs, deterministic=True)
-                    
-                    # Convert action to motor commands
+                    # Add batch dimension for RecurrentPPO
+                    obs = obs.reshape((1, -1))
+
+                    if IS_RECURRENT:
+                        action, lstm_states = self.model.predict(
+                            obs,
+                            state=lstm_states,
+                            episode_start=np.array([done]),
+                            deterministic=True
+                        )
+                    else:
+                        action, _ = self.model.predict(obs, deterministic=True)
+
                     self.action_to_motors(action)
-                    
-                    # Debug output
-                    if step_count % 20 == 0:  # Print every second at 20Hz
+
+                    if step_count % 20 == 0:
                         print(f"Step {step_count}: "
-                              f"Prox: {self.prox_sensor[:3]} | "
-                              f"Ground: {self.ground_sensor} | "
-                              f"Motors: L={self.left_motor}, R={self.right_motor}")
-                    
+                            f"Prox: {self.prox_sensor[:3]} | "
+                            f"Ground: {self.ground_sensor} | "
+                            f"Motors: L={self.left_motor}, R={self.right_motor}")
+
                     step_count += 1
-                
-                time.sleep(0.05)  # 20Hz control frequency
-                
+                    done = False  # Set True if you have episode resets
+
+                time.sleep(0.05)
+
         except KeyboardInterrupt:
             print("\nStopping PPO control...")
             self.stop()
-    
+
+                
     def stop(self):
         """Stop the robot safely"""
         self.running = False

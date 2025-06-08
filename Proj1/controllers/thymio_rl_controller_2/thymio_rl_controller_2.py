@@ -68,7 +68,7 @@ PENALTY_TURN = 1
 PENALTY_STUCK = 0
 
 #TODO Mudar
-IS_RECURRENT = False
+IS_RECURRENT = True
 
 # Structure of a class to create an OpenAI Gym in Webots.
 
