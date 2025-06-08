@@ -76,17 +76,18 @@ Select controller in Thymio Webots as `controllers/p1_controller_train/`.
 ## 🤖 Running the PPO Algorithm
 
 ## ▶️ 1. Test individual
-Open the file `controllers/thymio_rl_controller/thymio_rl_controller.py`.
+Open the file `controllers/thymio_rl_controller_1/thymio_rl_controller_1.py`.
 
-Choose and adjust the parameters marked with `#TODO` to configure the PPO training.
+Choose and adjust the parameters marked with `#TODO` to configure the PPO training and load model.
 ```python
 IS_RECURRENT = False
+MODEL_PATH = ...
 ```
 
-Select controller in Thymio Webots as `controllers/thymio_rl_controller_test/`.
+Select controller in Thymio Webots as `controllers/thymio_rl_controller_1/`.
 
 ## 🔄 2. Train individual
-Open the file `controllers/thymio_rl_controller/thymio_rl_controller.py`.
+Open the file `controllers/thymio_rl_controller_1/thymio_rl_controller_1.py`.
 
 Choose and adjust the parameters marked with `#TODO` to configure the PPO training.
 ```python
@@ -94,20 +95,21 @@ IS_RECURRENT = False
 ... # Other Parameters
 ```
 
-Select controller in Thymio Webots as `controllers/thymio_rl_controller/`.
+Select controller in Thymio Webots as `controllers/thymio_rl_controller_1/`.
 
 ## 🤖 Running the RPPO Algorithm
 
 ## ▶️ 1. Test individual
-Open the file `controllers/thymio_rl_controller_test/thymio_rl_controller_test.py`.
+Open the file `controllers/thymio_rl_controller_2/thymio_rl_controller_2.py`.
 
-Choose and adjust the parameters marked with `#TODO` to configure the RPPO training.
+Choose and adjust the parameters marked with `#TODO` to configure the RPPO training and load model.
 ```python
 IS_RECURRENT = True
+MODEL_LOAD = ...
 ```
 
 ## 🔄 2. Train individual
-Open the file `controllers/thymio_rl_controller/thymio_rl_controller.py`.
+Open the file `controllers/thymio_rl_controller_2/thymio_rl_controller_2.py`.
 
 Choose and adjust the parameters marked with `#TODO` to configure the RPPO training.
 ```python
@@ -115,7 +117,7 @@ IS_RECURRENT = True
 ... # Other Parameters
 ```
 
-Select controller in Thymio Webots as `controllers/thymio_rl_controller/`.
+Select controller in Thymio Webots as `controllers/thymio_rl_controller_2/`.
 
 # 🤖 Running the Real Thymio
 

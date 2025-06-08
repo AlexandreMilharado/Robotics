@@ -26,6 +26,18 @@ class Agent:
 # Inits
     def __init__(self, INDIVIDUAL_TYPE, timestep_multiplier):
 
+        """
+        Initializes the agent with the given type and timestep multiplier.
+
+        Parameters
+        ----------
+        INDIVIDUAL_TYPE : str
+            The type of the individual. It can be "BRAITENBERG" or "NETWORKS_SIMPLE".
+        timestep_multiplier : int
+            The multiplier for the basic time step of the simulation.
+
+        Sets the robot's sensors, motors, and reset function according to the type of the individual.
+        """
         self.supervisor : Supervisor = Supervisor()
         self.timestep = int(self.supervisor.getBasicTimeStep() * timestep_multiplier)
         
@@ -62,6 +74,14 @@ class Agent:
 
 
     def _init_sensors(self):
+        """
+        Initializes the sensors of the robot.
+
+        Retrieves the sensors from the supervisor by name, enables them, and stores them in the self.sensors list.
+        The sensors are the ones labeled "prox.horizontal.*" and "prox.ground.*".
+
+        No return value.
+        """
         sensors = ["prox.horizontal.0", "prox.horizontal.1", # Left
                    "prox.horizontal.2",                      # Middle
                    "prox.horizontal.3", "prox.horizontal.4", # Right
@@ -76,6 +96,13 @@ class Agent:
             self.sensors.append(sensor)
 
     def _init_motors(self):
+        """
+        Initializes the motors of the robot.
+
+        Retrieves the motors from the supervisor by name, sets their positions to infinity (no limit), and stores them in the self.left_motor and self.right_motor attributes.
+
+        No return value.
+        """
         self.left_motor : Motor = self.supervisor.getDevice('motor.left')      
         self.left_motor.setPosition(float('inf'))
         
@@ -86,6 +113,13 @@ class Agent:
         self.right_motor.setVelocity(0)
 
     def _init_black_line(self):
+        """
+        Initializes the black line of the robot.
+
+        Retrieves the black line from the supervisor by name, calculates the orientation of the black line in radians, and stores it in the self._black_line list.
+
+        No return value.
+        """
         self._black_line = []
         children = self.supervisor.getRoot().getField('children')
 
@@ -108,6 +142,16 @@ class Agent:
                 self._black_line.append((translation, size, rotation))
 
     def _init_boxes(self):
+        """
+        Initializes the obstacles of the robot.
+
+        Retrieves the root of the supervisor, retrieves the children field of the root, and
+        then creates a specified number of obstacles. Each obstacle is assigned a random
+        position, orientation, length, and width within specified ranges. The obstacles are
+        then added to the supervisor and stored in the self.obstacles list.
+
+        No return value.
+        """
         root = self.supervisor.getRoot()
         children_field = root.getField('children')
         self.obstacles = []
@@ -151,6 +195,16 @@ class Agent:
 
 # Readings
     def get_frontal_sensors_values(self):
+        """
+        Returns the values of the left, middle and right frontal sensors.
+
+        The values are normalized by the maximum sensor value.
+
+        Returns
+        -------
+        tuple
+            A tuple containing the normalized values of the left, middle and right frontal sensors.
+        """
         return (self.sensors[0].getValue()/MAX_SENSOR_FRONT, self.sensors[2].getValue()/MAX_SENSOR_FRONT, self.sensors[4].getValue()/MAX_SENSOR_FRONT)
 
     def _get_ground_sensors_values(self):
@@ -165,6 +219,18 @@ class Agent:
         return (self.is_not_on_black_line(self.sensors[-2].getValue()), self.is_not_on_black_line(self.sensors[-1].getValue()))
     
     def _get_frontal_and_ground_sensors_values(self):
+        """
+        Returns the combined values of the frontal and ground sensors.
+
+        This method retrieves the normalized values of the left, middle, and right frontal sensors,
+        and the values of the left and right ground sensors, concatenating them into a single tuple.
+
+        Returns
+        -------
+        tuple
+            A tuple containing the normalized values of the frontal sensors followed by the values of the ground sensors.
+        """
+
         return self.get_frontal_sensors_values() + self._get_ground_sensors_values()
 
     def _get_horizontal_sensors(self):
@@ -217,10 +283,37 @@ class Agent:
 # State
     # Utils
     def _random_orientation(self):                                      
+        """
+        Returns a random orientation quaternion.
+
+        Returns
+        -------
+        list
+            A quaternion [x, y, z, angle] representing a random orientation.
+        """
         angle = np.random.uniform(0, 2 * np.pi)
         return [0, 0, 1, angle]
 
     def _random_position(self, min_radius, max_radius, z):                
+        """
+        Returns a random position as [x, y, z] coordinates within a specified
+        radius range and at a specified z-coordinate.
+
+        Parameters
+        ----------
+        min_radius : float
+            Minimum radius of the random position.
+        max_radius : float
+            Maximum radius of the random position.
+        z : float
+            Z-coordinate of the random position.
+
+        Returns
+        -------
+        list
+            A list containing the x, y, and z coordinates of the random position.
+        """
+        
         radius = np.random.uniform(min_radius, max_radius)
         angle = self._random_orientation()
         x = radius * np.cos(angle[3])
@@ -229,6 +322,22 @@ class Agent:
     
     # Black Line Reward
     def is_on_black_line_map(self):
+        """
+        Determines if the robot is currently on the black line within the environment.
+
+        This function checks whether any corner of the robot's bounding box, defined by 
+        its current position and dimensions, is inside any of the black line segments 
+        specified in the environment. Each black line segment is defined by its translation, 
+        size, and rotation angle. The function iterates over each corner of the robot and 
+        uses a helper function to check for intersection with the rotated rectangles 
+        representing the black lines.
+
+        Returns
+        -------
+        bool
+            True if the robot is on the black line, False otherwise.
+        """
+
         def is_point_in_rotated_rectangle(px, py, cx, cy, width, height, angle):
             tx, ty = px - cx, py - cy
 
@@ -296,6 +405,16 @@ class Agent:
 
     # 
     def _get_rotation_translation(self):
+        """
+        Returns a random orientation quaternion and the origin translation.
+
+        Returns
+        -------
+        tuple
+            A tuple containing a list of 4 floats representing the rotation quaternion
+            and a list of 3 floats representing the translation, which is [0, 0, 0] in this
+            case.
+        """
         return self._random_orientation(), [0, 0, 0]
 
     # Reset
@@ -326,11 +445,33 @@ class Agent:
         self._reset_velocity()
     
     def _reset_boxes(self):
+        """
+        Randomly resets the rotation and translation of each obstacle.
+
+        Iterates through the list of obstacles and assigns a new random rotation and
+        translation to each one. The random position is constrained within the minimum
+        and maximum radius defined for obstacles.
+
+        No return value.
+        """
+
         for obs in self.obstacles:
             obs.getField("rotation").setSFRotation(self._random_orientation())
             obs.getField("translation").setSFVec3f(self._random_position(OBSTACLES_MIN_RADIUS, OBSTACLES_MAX_RADIUS, 0))
 
     def _reset_with_obstacles(self):
+        """
+        Resets the robot's position, orientation, and the positions of obstacles.
+
+        This function randomizes and resets the robot's rotation and translation using
+        specified methods for obtaining random orientations and translations. It also 
+        resets the position and rotation of each obstacle in the environment to new random
+        values. After updating these positions, the physics of the simulation is reset 
+        to ensure that the changes take effect immediately.
+
+        No return value.
+        """
+
         rotation, translation = self._get_rotation_translation()
         self._reset_params(rotation, translation)
         # self._reset_params(self._random_orientation(), self._random_position(RESET_MIN_RADIUS, RESET_MAX_RADIUS, 0))
@@ -338,14 +479,45 @@ class Agent:
         self.supervisor.simulationResetPhysics()
 
     def _reset_without_obstacles(self):
+        """
+        Resets the robot's position, orientation, and the physics of the simulation.
+
+        This function randomizes and resets the robot's rotation and translation using
+        specified methods for obtaining random orientations and translations. The physics
+        of the simulation is then reset to ensure that the changes take effect immediately.
+
+        No return value.
+        """
         rotation, translation = self._get_rotation_translation()
         self._reset_params(rotation, translation)
         self.supervisor.simulationResetPhysics()
 
     def will_next_position_collide(self):
+        """
+        Checks if the robot's next position will result in a collision.
+
+        This function retrieves the value of the last_will_collide variable, which represents
+        whether the next position of the robot will result in a collision with an obstacle.
+
+        Returns
+        -------
+        bool
+            True if the next position will result in a collision, False otherwise.
+        """
         return self.last_will_collide
     
     def update_sensors_past(self):
+        """
+        Updates the collision status based on the current frontal sensor values.
+
+        This method checks the values of the frontal sensors to determine if the robot is 
+        likely to collide in its next position. The result is stored in the `last_will_collide` 
+        variable, which is set to `True` if any frontal sensor detects a potential obstacle, 
+        indicating a possible collision.
+
+        No parameters or returns.
+        """
+
         self.last_will_collide = any(self.get_frontal_sensors_values())
 
 # Velocity
@@ -368,6 +540,21 @@ class Agent:
         return self.get_max_velocity() / (sum(weights) + 1) * velocity
     
     def _limit_velocity_net(self, velocity, weights):
+        """
+        Limits the velocity of the motor to ensure that it doesn't exceed the maximum velocity.
+
+        Parameters
+        ----------
+        velocity : float
+            The velocity to limit.
+        weights : list
+            The weights of the sensors.
+
+        Returns
+        -------
+        float
+            The limited velocity.
+        """
         return self.get_max_velocity() * max(min(velocity, 1), -1)
 
     def set_velocity_left_motor(self, velocity, weights):
@@ -397,6 +584,27 @@ class Agent:
         self.right_motor.setVelocity(self._limit_velocity(velocity, weights))
 
     def _set_wheel_velocities(self, angle, velocity, sensors_inputs):
+        """
+        Sets the velocities of the left and right motors based on the given angle and velocity.
+
+        Parameters
+        ----------
+        angle : float
+            The angle to set the motors to.
+        velocity : float
+            The velocity to set the motors to.
+        sensors_inputs : list
+            The inputs from the sensors.
+
+        Notes
+        -----
+        The velocities are calculated using the following formula:
+
+        v_left = velocity - (WHEEL_DISTANCE / 2.0) * omega
+        v_right = velocity + (WHEEL_DISTANCE / 2.0) * omega
+
+        where omega is the angular velocity and WHEEL_DISTANCE is the distance between the wheels.
+        """
         k_angle = MAX_OMEGA / math.pi
         omega = k_angle * angle
 
@@ -409,12 +617,41 @@ class Agent:
 # Movement
     def run_individual(self, individual):
         # Read Sensors
+        """
+        Runs the individual in the environment.
+
+        Parameters
+        ----------
+        individual : Individual
+            The individual to run.
+
+        Notes
+        -----
+        This function reads the sensors of the robot, and then runs the individual's
+        control function to control the motors of the robot.
+        """
         sensors_inputs = self.read_sensors()
 
         # Control Motors
         self.run_step(individual, sensors_inputs)
 
     def _run_step_braiternberg(self, individual, sensors_inputs):
+        """
+        Runs the individual in the environment using the Braitenberg control algorithm.
+
+        Parameters
+        ----------
+        individual : Individual
+            The individual to run.
+        sensors_inputs : list
+            The inputs from the sensors.
+
+        Notes
+        -----
+        This function takes the individual's weights and the sensors' inputs to control the motors of the robot.
+        The Braitenberg control algorithm is used to calculate the left and right motor velocities based on the inputs.
+        The velocities are then set to the left and right motors of the robot.
+        """
         p_1_e, p_2_e, p_3_e, p_1_d, p_2_d, p_3_d = individual.weights
         s_e, s_d = sensors_inputs
 
@@ -425,12 +662,44 @@ class Agent:
         self.set_velocity_right_motor(right_speed, sensors_inputs)
 
     def _run_step_net(self, individual, sensors_inputs):
+        """
+        Runs the individual in the environment using the simple neural network control algorithm.
+
+        Parameters
+        ----------
+        individual : Individual
+            The individual to run.
+        sensors_inputs : list
+            The inputs from the sensors.
+
+        Notes
+        -----
+        This function takes the individual's neural network and the sensors' inputs to control the motors of the robot.
+        The neural network is used to calculate the left and right motor velocities based on the inputs.
+        The velocities are then set to the left and right motors of the robot.
+        """
         left_speed, right_speed = individual.forward(sensors_inputs)
 
         self.set_velocity_left_motor(left_speed, sensors_inputs)
         self.set_velocity_right_motor(right_speed, sensors_inputs)
 
     def _run_step_complex_net(self, individual, sensors_inputs):
+        """
+        Runs the individual in the environment using the complex neural network control algorithm.
+
+        Parameters
+        ----------
+        individual : Individual
+            The individual to run.
+        sensors_inputs : list
+            The inputs from the sensors.
+
+        Notes
+        -----
+        This function takes the individual's neural network and the sensors' inputs to control the motors of the robot.
+        The neural network is used to calculate the left and right motor velocities based on the inputs.
+        The velocities are then set to the left and right motors of the robot.
+        """
         left_speed, right_speed = individual.forward(sensors_inputs)
 
         self.set_velocity_left_motor(left_speed, sensors_inputs)

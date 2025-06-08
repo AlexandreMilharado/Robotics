@@ -68,6 +68,20 @@ class Evolution_Manager():
 
 # Init and Loading
     def __init__(self, INDIVIDUAL_TYPE, TIMESTEP_MULTIPLIER, INDIVIDUALS_HISTORY_PATH, BEST_INDIVIDUAL_PATH):
+        """
+        Initialize the Evolution Manager
+        
+        Parameters
+        ----------
+        INDIVIDUAL_TYPE : str
+            Type of Individual to use, can be "BRAITENBERG", "NETWORKS_SIMPLE", or "NETWORKS_COMPLEX"
+        TIMESTEP_MULTIPLIER : int
+            Multiplier for the Webots timestep
+        INDIVIDUALS_HISTORY_PATH : str
+            Path to save the history of the individuals
+        BEST_INDIVIDUAL_PATH : str
+            Path to save the best individual
+        """       
         self.agent : Agent = Agent(INDIVIDUAL_TYPE, TIMESTEP_MULTIPLIER)
         self.history = History_Individuals(INDIVIDUALS_HISTORY_PATH = INDIVIDUALS_HISTORY_PATH,
                                         BEST_INDIVIDUAL_PATH = BEST_INDIVIDUAL_PATH,
@@ -81,6 +95,26 @@ class Evolution_Manager():
                 self.CONSTANT = NETWORKS_COMPLEX
 
     def load_train_params(self, population_size, generation_limit, evaluation_time, selection_number, mutation_rate, mutation_alter_rate):
+        """
+        Load the parameters for the evolutionary algorithm
+        
+        Parameters
+        ----------
+        population_size : int
+            Number of individuals in the population
+        generation_limit : int
+            Number of generations to run
+        evaluation_time : int
+            Time to evaluate each individual
+        selection_number : int
+            Number of individuals to select for the next generation
+        mutation_rate : float
+            Rate of mutation
+        mutation_alter_rate : float
+            Rate of mutation of the mutation rate
+        
+        """
+
         self.generation_start_number = 0
         self.generation_limit = generation_limit
 
@@ -94,6 +128,13 @@ class Evolution_Manager():
         self.current_gen_individuals = [self._generate_individual() for _ in range(population_size)]
 
     def load_training(self):
+        """
+        Load the training data from the history file
+        
+        This function loads the last generation from the history file and sets the current generation number to the last generation number + 1.
+        If the history file does not exist, it creates a new one and starts from generation 0.
+        """
+        
         try:
             df = pd.read_csv(self.history.INDIVIDUALS_HISTORY_PATH)
             rows = df.iloc[-len(self.current_gen_individuals):]
@@ -113,9 +154,29 @@ class Evolution_Manager():
             print("No file found --- Creating a new one")
 
     def load_best_individual_on_last_gen(self):
+        """
+        Load the best individual from the last saved generation.
+
+        This function retrieves the best individual from the history
+        of saved individuals, using the path specified in the 
+        BEST_INDIVIDUAL_PATH attribute of the history object.
+
+        Returns
+        -------
+        Individual
+            The best individual from the last saved generation.
+        """
+
         return self.history.load_best_individual()
 
     def reset(self):
+        """
+        Resets the robot and the simulation.
+        
+        This function resets the robot's state to the default state and runs the simulation for 3 steps to ensure that the
+        robot is properly reset.
+        """
+        
         self.agent.reset()
 
         for _ in range(3):
@@ -123,12 +184,34 @@ class Evolution_Manager():
                 raise SimulationEndedError("Step failed after reset")
             
     def run_individual(self, individual):
+        """
+        Runs an individual in the simulation until the simulation ends or the individual collides.
+        
+        Parameters
+        ----------
+        individual : Individual
+            The individual to run in the simulation.
+        """
+        
         while self.agent.supervisor.step(self.agent.timestep) != -1 and not self.agent.collided():
             # Run 1 Step
             self.agent.run_individual(individual)
 
 # Evolucionary Functions
     def _generate_individual(self):
+        """
+        Generates a new individual for the population.
+        
+        This function generates a new individual by creating a new set of weights, and then
+        creates a new individual using the history object. If the individual already exists,
+        the function generates a new set of weights and tries again until a new individual
+        is created.
+        
+        Returns
+        -------
+        Individual
+            A new individual with the generated weights.
+        """
         def generate_weights(size):
             return [np.random.uniform(self.CONSTANT["MIN_VALUE_WEIGHT"], self.CONSTANT["MAX_VALUE_WEIGHT"]) for _ in range(size)]
         
@@ -170,6 +253,25 @@ class Evolution_Manager():
         return parents
     
     def arithmetic_crossover(self, parent1, parent2):
+        """
+        Performs arithmetic crossover on two parent individuals to generate a new set of weights.
+
+        This method blends the weights of two parent individuals using a randomly generated
+        alpha value. The resulting weights are bounded by the defined minimum and maximum values.
+
+        Parameters
+        ----------
+        parent1 : Individual
+            The first parent individual contributing to the crossover.
+        parent2 : Individual
+            The second parent individual contributing to the crossover.
+
+        Returns
+        -------
+        list
+            A list of weights representing the offspring generated through arithmetic crossover.
+        """
+
         alpha = np.random.uniform(self.CONSTANT["CROSSOVER_ARITHMETIC_MIN"], self.CONSTANT["CROSSOVER_ARITHMETIC_MAX"])
         beta = 1 - alpha
         weights = []
@@ -181,6 +283,28 @@ class Evolution_Manager():
         return weights
 
     def crossover(self, selection_parents, crossover_aux, children_number):
+        """
+        Generates offspring by performing crossover on selected parents.
+
+        This method uses a selection function to choose parents and a crossover 
+        auxiliary function to blend their genetic information, producing a specified 
+        number of children with new sets of weights.
+
+        Parameters
+        ----------
+        selection_parents : callable
+            A function that selects and returns a list of parent individuals for crossover.
+        crossover_aux : callable
+            A function that performs the crossover operation on two parents to produce a child.
+        children_number : int
+            The number of children to generate through crossover.
+
+        Returns
+        -------
+        list
+            A list of weights representing the offspring generated through crossover.
+        """
+
         children_weights = []
 
         parents = selection_parents()
@@ -192,6 +316,25 @@ class Evolution_Manager():
         return children_weights
 
     def mutate_alter_value(self, child_weights):
+        """
+        Randomly alters a value in a set of weights to another value following a normal distribution.
+
+        This method iterates through a list of weights and randomly selects a value to be altered.
+        The new value is generated by sampling from a normal distribution with mean equal to the
+        current value and standard deviation equal to a constant defined in the configuration.
+        If the new value is outside the valid range of values, it is re-sampled until a valid value
+        is obtained.
+
+        Parameters
+        ----------
+        child_weights : list
+            The list of weights to be mutated.
+
+        Returns
+        -------
+        list
+            The list of weights after mutation.
+        """
         for i, w in enumerate(child_weights):
             if np.random.rand() < self.mutation_alter_rate:
                 random_value = np.random.normal(w, self.CONSTANT["MUTATION_VARIANCE"])
@@ -205,11 +348,50 @@ class Evolution_Manager():
          
 
     def mutation(self, mutation_aux, children_weights):
+        """
+        Applies mutation to a list of weights using a mutation function.
+
+        This method iterates through a list of weights and randomly selects a weight to be mutated.
+        The mutation function is called with the selected weight and the result is assigned back to the
+        list of weights.
+
+        Parameters
+        ----------
+        mutation_aux : callable
+            A function that takes a weight and returns a mutated weight.
+        children_weights : list
+            A list of weights to be mutated.
+
+        Returns
+        -------
+        list
+            The list of weights after mutation.
+        """
         for i in range(len(children_weights)):
             if np.random.rand() < self.mutation_rate:
                 children_weights[i] = mutation_aux(children_weights[i])
 
     def removing_duplicates(self, gen_number, individual_weights):
+        """
+        Removes duplicates of an individual in the history.
+
+        This method takes a generation number and a set of weights and creates a new individual in the history.
+        If the individual already exists in the history, it generates a new set of weights and tries again until a new individual
+        is created.
+
+        Parameters
+        ----------
+        gen_number : int
+            The generation number of the individual.
+        individual_weights : list
+            A list of weights representing the individual.
+
+        Returns
+        -------
+        Individual
+            The newly created individual.
+        """
+
         individual = self.history.create_individual(gen_number, individual_weights)
         while individual is None:
             weights = []
@@ -228,33 +410,146 @@ class Evolution_Manager():
     
 # Fitness Functions
     def start_fitness(self):
+        """
+        Returns the initial fitness value of an individual, which is the absolute value of the maximum velocity of the robot.
+        
+        Returns
+        -------
+        float
+            The initial fitness value of an individual.
+        """
         return abs(self.agent.get_max_velocity())
 
     def reward_fitness_on_black_line(self):
+        """
+        Returns the reward for the fitness of an individual based on its speed when on black line.
+        
+        The reward is calculated as the absolute value of the average velocity of the robot
+        multiplied by a constant and the sum of the two ground sensors, which are both
+        inverted so that the reward is higher when the robot is on the black line.
+        
+        Returns
+        -------
+        float
+            The reward for the fitness of an individual.
+        """
+        
         sensors_readings =  self.agent._get_ground_sensors_values()
         return self.CONSTANT["REWARD_BLACK_SPEED"] * abs(self.agent.get_average_velocity()) * sum([int(not reading) for reading in sensors_readings])
     
     def reward_fitness_on_straight_line(self):
+        """
+        Returns the reward for maintaining straight line movement.
+
+        This method calculates a reward based on the difference in velocity
+        between the left and right motors. If the difference is below a certain
+        threshold, it is considered to be moving in a straight line, and a reward 
+        is given.
+
+        Returns
+        -------
+        float
+            The reward for maintaining straight line movement.
+        """
+
         return self.CONSTANT["REWARD_STRAIGHT_LINE"] * (abs(self.agent.left_motor.getVelocity() - self.agent.right_motor.getVelocity()) < 0.2)
     
     def penalty_wiggly_movement(self, angular_velocity):
+        """
+        Returns the penalty for wiggly movement.
+
+        This method calculates a penalty based on the difference in angular velocity
+        between the left and right motors. If the difference is not zero, it is considered
+        to be wiggly movement, and a penalty is given.
+
+        Parameters
+        ----------
+        angular_velocity : float
+            The angular velocity of the robot.
+
+        Returns
+        -------
+        float
+            The penalty for wiggly movement.
+        """
         return -self.CONSTANT["PENALTY_WIGGLY_MOV"] * abs(self.agent.get_max_velocity()) * (np.sign(angular_velocity) != np.sign(self.agent.get_angular_velocity()) and
                                                     self.agent.left_motor != self.agent.right_motor)
     def penalty_front_object(self):
+        """
+        Returns the penalty for objects in front of the robot.
+
+        This method calculates a penalty based on the average of the frontal sensors' values.
+        If the average is close to 1, it means there is an object in front of the robot, and a penalty
+        is given.
+
+        Returns
+        -------
+        float
+            The penalty for objects in front of the robot.
+        """
         values = [value / 4301 for value in self.agent.get_frontal_sensors_values()]
         result = sum(values) / len(values)
         return -self.CONSTANT["PENALTY_STOP_FRONT"] * abs(self.agent.get_average_velocity()) * result
     
     def penalty_fitness_collide(self):
+        """
+        Returns the penalty for the robot colliding with an obstacle in its path.
+
+        This method calculates a penalty based on whether the robot will collide with an obstacle
+        in the next position. If the robot will collide, a penalty is given.
+
+        Returns
+        -------
+        float
+            The penalty for the robot colliding with an obstacle in its path.
+        """
         past_collide = self.agent.will_next_position_collide()
         self.agent.update_sensors_past()
         new_collide = self.agent.will_next_position_collide()
         return -self.CONSTANT["PENALTY_FUTURE_COLISION"] * (past_collide and new_collide) * abs(self.agent.get_average_velocity())
 
     def penalty_obstacle_colision(self, fitness, n):
+        """
+        Returns the penalty for the robot colliding with an obstacle in its path.
+
+        This method calculates a penalty based on the number of times the robot has collided
+        with an obstacle. If the robot has collided more than the maximum number of
+        collisions, the penalty is the maximum penalty. Otherwise, the penalty is a percentage
+        of the maximum penalty based on the number of collisions.
+
+        Parameters
+        ----------
+        fitness : float
+            The fitness of the individual.
+        n : int
+            The number of times the robot has collided with an obstacle.
+
+        Returns
+        -------
+        float
+            The penalty for the robot colliding with an obstacle in its path.
+        """
         return fitness - (n/self.CONSTANT["MAX_COLISION"]) * self.CONSTANT["PENALTY_COLISION"]
                 
     def penalty_fitness_based_on_best_dna(self, sorted_individuals, penalties):
+        """
+        Returns the penalties for the given sorted individuals based on the difference between the current DNA and the best DNA.
+
+        This method calculates a penalty based on the difference between the current DNA and the best DNA.
+        The penalty is a percentage of the current fitness, given by the constant "PENALTY_DNA".
+
+        Parameters
+        ----------
+        sorted_individuals : list
+            A list of sorted individuals.
+        penalties : list
+            A list of tuples, where the first element is the index of the individual and the second element is the penalty.
+
+        Returns
+        -------
+        list
+            A list of tuples, where the first element is the index of the individual and the second element is the penalty.
+        """
         for i in range(len(sorted_individuals) - 1):
             for j in range(i+1, len(sorted_individuals)):
                 index, fitness = penalties[j]
@@ -264,6 +559,23 @@ class Evolution_Manager():
         return penalties
     
     def reward_fitness_on_different_pathing_from(self, sorted_individuals, rewards):
+        """
+        Returns the rewards for the given sorted individuals based on the distance from all other individuals.
+
+        This method calculates a reward based on the distance from all other individuals. The reward is a percentage of the current fitness, given by the constant "REWARD_DIFFERENT_PATH".
+
+        Parameters
+        ----------
+        sorted_individuals : list
+            A list of sorted individuals.
+        rewards : list
+            A list of tuples, where the first element is the index of the individual and the second element is the reward.
+
+        Returns
+        -------
+        list
+            A list of tuples, where the first element is the index of the individual and the second element is the reward.
+        """
         distances = []
         for individual in sorted_individuals:
             distances.append(individual.distance_from_all(sorted_individuals))
@@ -279,6 +591,23 @@ class Evolution_Manager():
         return rewards
     
     def penalty_fitness_on_same_position(self, sorted_individuals, penalties):
+        """
+        Returns the penalties for the given sorted individuals based on the position difference from all other individuals.
+
+        This method calculates a penalty based on the position difference from all other individuals. The penalty is a percentage of the current fitness, given by the constant "PENALTY_DIFFERENT_POSITION".
+
+        Parameters
+        ----------
+        sorted_individuals : list
+            A list of sorted individuals.
+        penalties : list
+            A list of tuples, where the first element is the index of the individual and the second element is the penalty.
+
+        Returns
+        -------
+        list
+            A list of tuples, where the first element is the index of the individual and the second element is the penalty.
+        """
         for i, individual in enumerate(sorted_individuals):
             index, fitness = penalties[i]
             fitness -= self.CONSTANT["PENALTY_DIFFERENT_POSITION"] * fitness * individual.position_diff()
@@ -287,6 +616,25 @@ class Evolution_Manager():
         return penalties
 
     def reward_fitness_black_line(self, sorted_individuals, rewards, line_percentage):
+        """
+        Returns the rewards for the given sorted individuals based on the black line percentage.
+
+        This method adds a reward to the fitness of each individual based on the percentage of the black line that the individual has driven on. The reward is a percentage of the current fitness, given by the constant "REWARD_BLACK_LINE".
+
+        Parameters
+        ----------
+        sorted_individuals : list
+            A list of sorted individuals.
+        rewards : list
+            A list of tuples, where the first element is the index of the individual and the second element is the reward.
+        line_percentage : list
+            A list of tuples, where the first element is the index of the individual and the second element is the percentage of the black line that the individual has driven on.
+
+        Returns
+        -------
+        list
+            A list of tuples, where the first element is the index of the individual and the second element is the reward.
+        """
         for i, individual in enumerate(sorted_individuals):
             index, fitness = rewards[i]
             fitness += self.CONSTANT["REWARD_BLACK_LINE"] * line_percentage[index][1]
@@ -295,23 +643,100 @@ class Evolution_Manager():
         return rewards
     
     def reward_fitness_alive(self, fitness):
+        """
+        Returns the reward for the fitness of an individual based on its survival time.
+        
+        The reward is the fitness of the individual multiplied by the constant "REWARD_ALIVE".
+        
+        Parameters
+        ----------
+        fitness : float
+            The fitness of the individual.
+        
+        Returns
+        -------
+        float
+            The reward for the fitness of an individual.
+        """
+        
         return fitness * self.CONSTANT["REWARD_ALIVE"]
 
 
 # Stats World
     def set_diversity(self, individuals):
+        """
+        Sets the diversity of the individuals in the population.
+
+        This method calculates the diversity of the population by calculating the standard deviation of the weights of all individuals
+        and then takes the mean of the standard deviations. The diversity is then set for each individual in the population.
+
+        Parameters
+        ----------
+        individuals : list
+            A list of individuals in the population.
+        """
         gene_matrix = np.array([individual.weights for individual in individuals])
         diversity = np.mean(np.std(gene_matrix, axis=0))
         for individual in individuals:
             individual.set_diversity(diversity)
 
     def set_line_percentage(self, individuals, line_percentage):
+        """
+        Sets the percentage of the black line that each individual in the population has driven on.
+        
+        Parameters
+        ----------
+        individuals : list
+            A list of individuals in the population.
+        line_percentage : list
+            A list of tuples, where the first element is the index of the individual and the second element is the percentage of the black line that the individual has driven on.
+        """
+        
         for i, individual in enumerate(individuals):
             individual.set_line_percentage(line_percentage[i][1])
 
 # Training Details
     def train_individual(self, individual):
+        """
+        Trains an individual for a specified evaluation time and calculates fitness.
+
+        This function iteratively simulates the behavior of an individual in the environment, updating its fitness
+        based on various reward and penalty functions. The individual's path and performance on the black line
+        are tracked, and the fitness is normalized at the end of the evaluation.
+
+        Parameters
+        ----------
+        individual : Individual
+            The individual to be trained.
+
+        Returns
+        -------
+        dict
+            A dictionary with keys "FITNESS" and "LINE_PERCENTAGE" representing the fitness score of the individual
+            and the percentage of the black line the individual has driven on, respectively.
+        """
+
         def update_fitness(fitness, angular_velocity):
+            """
+            Updates the fitness of an individual based on various reward and penalty factors.
+
+            This method calculates the new fitness score by adding the existing fitness to the sum of
+            rewards and penalties from different criteria, such as the individual's performance on the 
+            black line, proximity to frontal objects, potential collisions, and wiggly movement.
+
+            Parameters
+            ----------
+            fitness : float
+                The current fitness score of the individual.
+            angular_velocity : float
+                The angular velocity of the robot used to assess wiggly movement penalties.
+
+            Returns
+            -------
+            float
+                The updated fitness score.
+            """
+
             return (fitness +
                     self.reward_fitness_on_black_line() +
                     self.penalty_front_object() +
@@ -319,9 +744,36 @@ class Evolution_Manager():
                     self.penalty_wiggly_movement(angular_velocity))
         
         def normalise_fitness(fitness):
+            """
+            Normalizes the fitness value to a value between 0 and 1.
+
+            Parameters
+            ----------
+            fitness : float
+                The fitness value to be normalized.
+
+            Returns
+            -------
+            float
+                The normalized fitness value.
+            """
             return (fitness) / MAX_FITNESS_VALUE
 
         def update_stats(stats):
+            """
+            Updates the statistics dictionary with the count of times the agent has touched the black line.
+
+            This method increments the "line_touches" value in the provided stats dictionary by checking
+            if the agent is currently on a black line in the map.
+
+            Parameters
+            ----------
+            stats : dict
+                A dictionary containing various statistics about the agent's performance. The key "line_touches"
+                should be present in this dictionary, and its value will be incremented.
+
+            """
+
             stats["line_touches"] += int(self.agent.is_on_black_line_map())
 
         angular_velocity = self.agent.get_angular_velocity()
@@ -360,6 +812,25 @@ class Evolution_Manager():
         return {"FITNESS": fitness, "LINE_PERCENTAGE": stats["line_touches"]/limit_timestep}
 
     def train_one_individual(self, individual):
+        """
+        Train one individual and return its fitness and line percentage.
+
+        Parameters
+        ----------
+        individual : Individual
+            The individual to be trained.
+
+        Returns
+        -------
+        result : dict
+            A dictionary containing the fitness and line percentage of the individual.
+
+        Notes
+        -----
+        If the simulation ends before the evaluation time is finished, the method
+        will restart the simulation until the evaluation time is finished or
+        the maximum number of tries is reached.
+        """
         failed = True
         result = {"FITNESS": 0, "LINE_PERCENTAGE": 0}
         tries = 0
@@ -380,6 +851,23 @@ class Evolution_Manager():
 
     def train_one_generation(self, gen_number):
         # Reset Paths
+        """
+        Trains one generation of individuals in the evolutionary algorithm.
+
+        This method performs the training process for a single generation of individuals. It includes resetting
+        paths, training each individual, calculating and updating fitness, setting generation statistics,
+        performing selection, crossover, and mutation to evolve the population to the next generation.
+
+        Parameters
+        ----------
+        gen_number : int
+            The current generation number.
+
+        Notes
+        -----
+        The function logs various stages of the training process for debugging and monitoring purposes.
+        """
+
         for individual in self.current_gen_individuals:
             individual.reset_path()
 
@@ -455,6 +943,17 @@ class Evolution_Manager():
         
 
     def train_all(self):
+        """
+        Trains all generations in the evolutionary algorithm.
+
+        This method performs the training process for all generations. It includes resetting
+        paths, training each individual, calculating and updating fitness, setting generation statistics,
+        performing selection, crossover, and mutation to evolve the population to the next generation.
+
+        Notes
+        -----
+        The function logs various stages of the training process for debugging and monitoring purposes.
+        """
         generation_number = self.generation_start_number
         generation_stop = self.generation_limit + self.generation_start_number
 

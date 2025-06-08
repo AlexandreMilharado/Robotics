@@ -68,6 +68,15 @@ IS_RECURRENT = False
 class OpenAIGymEnvironment(Supervisor, gym.Env):
     
     def __init__(self, max_episode_steps = EPISODE_STEPS):
+        """
+        Constructor of the environment.
+
+        Parameters:
+        max_episode_steps (int): maximum number of steps in an episode. Default is EPISODE_STEPS.
+
+        Returns:
+        None
+        """
         super().__init__()
 
         gym.register(
@@ -108,6 +117,25 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
     # Reset the environment to an initial internal state, returning an initial observation and info.
     #
     def reset(self, seed=None, options=None):
+        """
+        Reset the environment to an initial internal state, returning an initial observation and info.
+
+        Parameters:
+        seed (int): the seed used for the random number generator. If None, the environment will use the Webots random seed.
+        options (dict): additional information to pass to the environment. If None, no additional information is passed.
+
+        Returns:
+        tuple: a tuple of the initial observation and additional information (info). The initial observation is a numpy array of shape (7,) with the sensors' values, and the additional information is a dictionary with the following keys:
+
+        - 'obstacles': a list of the obstacles' positions and radiuses
+        - 'visited': a set of the visited positions
+        - 'last_grid_position': the last grid position
+        - 'stuck_counter': the number of steps the robot is stuck
+        - 'last_reading': the last reading of the front sensors
+        - 'last_break_action': the last action that made the robot break
+
+        The info dictionary can be used to store additional information about the environment, such as the obstacles' positions and radiuses, the visited positions, the last grid position, the number of steps the robot is stuck, the last reading of the front sensors, and the last action that made the robot break.
+        """
         super().reset(seed=seed)
 
         # Reset Simulation
@@ -152,6 +180,25 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
     #   
     def step(self, action):
 
+        """
+        Run one timestep of the environment’s dynamics using the agent's action.
+
+        Parameters
+        ----------
+        action : object
+            The action to be applied in the robot actuators.
+
+        Returns
+        -------
+        tuple
+            A tuple containing:
+            - state (np.ndarray): The new state of the environment after the action is applied.
+            - reward (float): The reward obtained from the current state-action pair.
+            - terminated (bool): A flag indicating whether the episode has ended.
+            - truncated (bool): A flag indicating whether the episode was truncated.
+            - info (dict): Additional information about the environment.
+        """
+
         self.__n = self.__n + 1
 
         # start by applying the action in the robot actuators
@@ -180,6 +227,18 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return self.state.astype(np.float64), reward, terminated, truncated, info
     
     def _get_obs(self):
+        """
+        Retrieve the current observation of the environment's state.
+
+        This function gathers data from the robot's sensors, normalizes it, and returns it as a numpy array.
+
+        Returns:
+        -------
+        np.ndarray
+            A numpy array representing the normalized state of the environment, including horizontal 
+            and ground sensor readings.
+        """
+
         state = []
         state += self._get_normalize_h_sensors()
         state += self._get_normalize_g_sensors()
@@ -187,6 +246,23 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return np.array(state)
     
     def _get_info(self, done):
+        """
+        Retrieves additional information about the current state of the environment.
+
+        This function is called in the step function and returns a dictionary with the
+        following keys:
+
+        - "episode": a dictionary with the following keys:
+            - "r": the total reward accumulated during the episode
+            - "l": the number of steps taken during the episode
+        - "terminal_observation": the last observation of the environment's state before
+            the episode was terminated
+
+        Returns:
+        -------
+        dict
+            A dictionary containing additional information about the environment's state.
+        """
         info = {}
         if done:
             info['episode'] = {
@@ -197,10 +273,42 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return info
 
     def _set_velocities(self, action):
+        """
+        Sets the velocities for the left and right motors based on the given action.
+
+        The action values are clamped between -1 and 1, and then scaled by the 
+        maximum velocity of each motor to ensure the velocities are within the 
+        allowable range.
+
+        Parameters
+        ----------
+        action : list of float
+            A list containing two elements representing the desired velocity scale 
+            for the left and right motors, respectively.
+        """
+
         self.left_motor.setVelocity(max(min(action[0], 1), -1) * self.left_motor.getMaxVelocity())
         self.right_motor.setVelocity( max(min(action[1], 1), -1) * self.right_motor.getMaxVelocity())
 
     def _act(self):
+        """
+        Simulates the physics for 10 steps.
+
+        If, at any point, any of the ground sensors are not zero or any of the horizontal
+        sensors are above 0.1, it will break out of the loop and set last_break_action to False.
+        If the loop completes without breaking, it will set last_break_action to True.
+
+        This is used to simulate the effect of a single action on the environment for a short
+        period of time, and to detect if the robot is stuck.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
         for i in range(10):
             super().step(self.__timestep)
             if not (any([v == 0 for v in self._get_normalize_g_sensors()]) or any([v > 0.1 for v in self._get_normalize_h_sensors()])):
@@ -210,6 +318,23 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
                 break
 
     def _get_reward(self, done):
+        """
+        Computes the reward for the current state.
+
+        The reward is the sum of a constant reward for time alive, a reward for exploration,
+        a penalty for proximity to obstacles, a penalty for being on a ledge, a reward for
+        positive linear velocity, and a penalty for falling.
+
+        Parameters
+        ----------
+        done : bool
+            Whether the episode is done or not.
+
+        Returns
+        -------
+        float
+            The total reward for the current state.
+        """
         total = REWARD_TIME_ALIVE
         total += self._reward_exploration()
         total += self._penalty_prox_obstacles(self._get_normalize_h_sensors())
@@ -219,6 +344,20 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return total
 
     def _determine_terminated(self):
+        """
+        Determines whether the episode should be terminated.
+
+        Checks if the robot is on a ledge or stuck, and returns a dictionary with the
+        corresponding states, as well as a boolean indicating whether the episode is terminated.
+
+        Returns
+        -------
+        dict
+            A dictionary containing the following keys:
+                - "stuck": a boolean indicating whether the robot is stuck
+                - "fall": a boolean indicating whether the robot is on a ledge
+        """
+
         fall = (
             self.getFromDef("ROBOT").getField("translation").getSFVec3f()[2] < 0
         )
@@ -232,6 +371,30 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
 
     
     def _wheel_stuck(self, action):
+
+        """
+        Determines if the robot's wheels are stuck.
+
+        This function checks whether the robot is stuck based on its current position
+        and motor activity. If the robot remains in the same position while its motors
+        are active, it is considered stuck.
+
+        Parameters
+        ----------
+        action : list of float
+            A list containing two elements representing the desired velocity for 
+            the left and right motors, respectively.
+
+        Returns
+        -------
+        bool
+            True if the robot is stuck, otherwise False.
+
+        Updates
+        -------
+        self.stuck_counter : int
+            Increments if the robot is stuck, otherwise resets to 0.
+        """
 
         left_speed, right_speed = action[0], action[1]
 
@@ -251,16 +414,49 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return stuck
 
     def _determine_truncated(self):
+        """
+        Determines whether the episode should be truncated.
+
+        Checks if the robot has reached the maximum number of steps allowed in an episode.
+
+        Returns
+        -------
+        bool
+            True if the episode should be truncated, otherwise False.
+        """
+
         return self.__n > self.__max_n
 
 # Reset Auxiliar Methods
     def _sim_reset(self):
+        """
+        Resets the simulation and physics.
+
+        Resets the simulation by calling `simulationReset` and `simulationResetPhysics`,
+        and then steps the simulation once using the superclass's `step` method.
+
+        This method is called by the environment's `reset` method to reset the simulation
+        before starting a new episode.
+
+        Notes
+        -----
+        This method does not return anything, but it modifies the state of the simulation
+        by resetting the simulation and physics, and stepping the simulation once.
+        """
         self.simulationReset()
         self.simulationResetPhysics()
         
         super().step(self.__timestep)
 
     def _init_sensors(self):
+        """
+        Initializes the sensors of the robot.
+
+        Retrieves the sensors from the supervisor by name, enables them, and stores them in the self.sensors list.
+        The sensors are the ones labeled "prox.horizontal.*" and "prox.ground.*".
+
+        No return value.
+        """
         self.h_sensors : list[DistanceSensor] = [
             super().getDevice('prox.horizontal.0'), # Left
             super().getDevice('prox.horizontal.1'), # Left
@@ -281,6 +477,15 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         self.acc_sensor.enable(self.__timestep)
 
     def _init_actuators(self):
+        """
+        Initializes the actuators of the robot.
+
+        Retrieves the left and right motors from the robot by name, sets their positions 
+        to infinity (allowing continuous rotation), and initializes their velocities to zero.
+
+        No return value.
+        """
+
         self.left_motor : Motor= self.getDevice('motor.left')
         self.right_motor : Motor = self.getDevice('motor.right')
         self.left_motor.setPosition(float('inf'))
@@ -293,10 +498,40 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         self.getFromDef('ROBOT').getField('translation').setSFVec3f([0, 0, 1])
     
     def _random_orientation(self):                                      
+        """
+        Generates a random orientation quaternion.
+
+        The orientation is represented as a quaternion [x, y, z, angle], 
+        where the axis of rotation is fixed as the z-axis and the angle is 
+        randomly selected between 0 and 2*pi radians.
+
+        Returns
+        -------
+        list
+            A quaternion representing the random orientation.
+        """
+
         angle = np.random.uniform(0, 2 * np.pi)
         return [0, 0, 1, angle]
 
     def _random_position(self, min_radius, max_radius, z):                
+        """
+        Generates a random position within a specified radius range and at a specified z-coordinate.
+
+        Parameters
+        ----------
+        min_radius : float
+            Minimum radius of the random position.
+        max_radius : float
+            Maximum radius of the random position.
+        z : float
+            Z-coordinate of the random position.
+
+        Returns
+        -------
+        list
+            A list containing the x, y, and z coordinates of the random position.
+        """
         radius = np.random.uniform(min_radius, max_radius)
         angle = self._random_orientation()
         x = radius * np.cos(angle[3])
@@ -304,6 +539,18 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return [x, y, z]
 
     def _init_obstacles(self):                
+        """
+        Initializes the obstacles in the environment.
+
+        This function creates a specified number of obstacles, each with a random position, 
+        orientation, length, and width. The obstacles are defined as Solid nodes with a 
+        white appearance and a density of 1000.0. They are added to the children field of 
+        the root node in the simulation environment. Each obstacle is stored in the 
+        self.obstacles list for later reference.
+
+        No return value.
+        """
+
         root = self.getRoot()
         children_field = root.getField('children')
 
@@ -343,23 +590,75 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
             self.obstacles.append(self.getFromDef(f"WHITE_BOX_{i}"))
 
     def _inital_obs(self):
+        """
+        Returns the initial observation of the environment.
+
+        The initial observation is a numpy array of shape (7,) with all values set to 0.
+
+        Returns:
+            np.ndarray: the initial observation
+        """
         return np.array([0, 0, 0, 0, 0, 0, 0]).astype(np.float32)
 
 # Observations Auxiliar Methods
     def _get_normalize_h_sensors(self):
+        """
+        Returns the normalized values of the horizontal sensors.
+
+        The normalized values are obtained by dividing the raw sensor values by the maximum
+        sensor value.
+
+        Returns:
+            list: a list of 5 normalized values of the horizontal sensors
+        """
         return [sensor.getValue()/sensor.getMaxValue() for sensor in self.h_sensors]
 
     def _get_normalize_g_sensors(self):
+        """
+        Returns the normalized values of the ground sensors.
+
+        The normalized values are obtained by dividing the raw sensor values by the maximum
+        sensor value.
+
+        Returns:
+            list: a list of 2 normalized values of the ground sensors
+        """
         return [sensor.getValue()/sensor.getMaxValue() for sensor in self.g_sensors]
 
 # Reward Auxiliar Methods
     def _get_position_on_grid(self):
+        """
+        Returns the position of the robot on the grid.
+
+        The position is represented as a tuple (gx, gy) where gx and gy are the
+        coordinates of the robot in the grid. The grid coordinates are obtained by
+        dividing the position in meters by the grid resolution.
+
+        Returns
+        -------
+        tuple
+            A tuple containing the x and y coordinates of the robot in the grid.
+        """
         pos = self.getFromDef("ROBOT").getField("translation").getSFVec3f()
         gx = int(pos[0] / GRID_RESOLUTION)
         gy = int(pos[1] / GRID_RESOLUTION)
         return (gx, gy)
     
     def _reward_linear_positive_velocity(self):
+        """
+        Calculates the reward for maintaining linear positive velocity.
+
+        This function evaluates the robot's motor velocities and ground sensor readings to 
+        determine a reward based on whether both wheels are moving forward, aligned, and in contact 
+        with the ground. The reward is higher when both wheels are moving forward and aligned, 
+        and a penalty is applied if they are not.
+
+        Returns
+        -------
+        float
+            The computed reward or penalty for the robot's current velocity state.
+        """
+
         left_vel = self.left_motor.getVelocity()
         right_vel = self.right_motor.getVelocity()
 
@@ -374,9 +673,45 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return reward
     
     def _penalty_prox_obstacles(self, frontal_readings):
+        """
+        Calculates the penalty for the robot's proximity to obstacles.
+
+        This function takes the values of the frontal sensors and returns a penalty
+        based on whether the sensors are reading any obstacles. The penalty is higher
+        when the sensors are closer to an obstacle.
+
+        Parameters
+        ----------
+        frontal_readings : list
+            The current readings of the frontal sensors.
+
+        Returns
+        -------
+        float
+            The computed penalty for the robot's current proximity to obstacles.
+        """
         return sum([-PENALTY_PROX_OBSTACLES * reading for reading in frontal_readings])
 
     def _penalty_ledge(self, ground_sensors):
+        """
+        Calculates the penalty for the robot's proximity to the ledge.
+
+        This function takes the values of the ground sensors and returns a penalty
+        based on whether the sensors are reading any obstacles, and whether the
+        robot is rotating. The penalty is higher when the sensors are closer to
+        an obstacle and the robot is rotating.
+
+        Parameters
+        ----------
+        ground_sensors : list
+            The current readings of the ground sensors.
+
+        Returns
+        -------
+        float
+            The computed penalty for the robot's current proximity to the ledge.
+        """
+
         left_vel = self.left_motor.getVelocity()
         right_vel = self.right_motor.getVelocity()
         current_reading = sum([int(reading == 0) for reading in ground_sensors])
@@ -395,6 +730,19 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         return reward
 
     def _reward_exploration(self):
+        """
+        Calculates the exploration reward for the robot.
+
+        This function determines a reward based on the robot's movement to new grid positions.
+        The reward is given when the robot moves to a new position on the grid while both wheels 
+        are moving forward.
+
+        Returns
+        -------
+        float
+            The computed reward for exploration based on the robot's movement.
+        """
+
         left_vel = self.left_motor.getVelocity()
         right_vel = self.right_motor.getVelocity()
         x, y = self._get_position_on_grid()
@@ -410,6 +758,25 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
         #     return REWARD_VISITED
         
     def _penalty_fall(self, done):
+        """
+        Calculates the penalty when the robot falls off the ledge.
+
+        This function determines a penalty based on whether the robot has fallen off 
+        the ledge, as indicated by the 'fall' key in the 'done' dictionary. An additional 
+        penalty is applied if the robot's wheels are moving backward when the fall occurs.
+
+        Parameters
+        ----------
+        done : dict
+            A dictionary containing the status of the robot, with a key 'fall' that indicates 
+            if the robot has fallen off the ledge.
+
+        Returns
+        -------
+        float
+            The computed penalty for the fall.
+        """
+
         left_vel = self.left_motor.getVelocity()
         right_vel = self.right_motor.getVelocity()
         reward = -PENALTY_LEDGE_FALL * int(done["fall"]) 
@@ -419,14 +786,54 @@ class OpenAIGymEnvironment(Supervisor, gym.Env):
 
 class RolloutCSVLogger(BaseCallback):
     def __init__(self, csv_path: str, verbose=0):
+        """
+        Initializes the RolloutCSVLogger
+
+        Parameters
+        ----------
+        csv_path : str
+            The path to the CSV file where the rollout data will be saved
+        verbose : int
+            The verbosity level (default: 0)
+
+        Attributes
+        ----------
+        header_written : bool
+            Whether the header has been written to the file
+        filename : str
+            The path to the CSV file
+        """
+
         super().__init__(verbose)
         self.header_written = False
         self.filename = csv_path
 
     def _on_step(self) -> bool:
+        """
+        Called after each step in the environment.
+
+        Returns
+        -------
+        bool
+            Whether to continue rollout or reset environment
+        """
         return True
     
     def _on_rollout_end(self) -> None:
+        """
+        Called after each rollout.
+
+        This function writes out the metrics gathered during the rollout to a CSV file.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+        
         logger = self.model.logger
         name_to_value = getattr(logger, 'name_to_value', {})
 
@@ -467,6 +874,21 @@ class RolloutCSVLogger(BaseCallback):
             writer.writerow(data)
             
 def schedule(lr):
+    """
+    Compute temperature value at given timestep(s) based on melt fusion dynamics.
+    
+    Args:
+        timestep: Single timestep or array of timesteps
+        num_timesteps: Total number of timesteps
+        melting_point: Critical transition point (0-1 fraction)
+        thermal_conductivity: Heat distribution smoothness
+        fusion_energy: Energy barrier for phase change
+        cooling_rate: Base cooling rate
+        crystallization_temp: Structure formation threshold
+    
+    Returns:
+        Temperature value(s) at the given timestep(s)
+    """
     def temperature_profile(timestep, num_timesteps=TOTAL_TIMESTEPS, melting_point=0.6, 
                         thermal_conductivity=0.15, fusion_energy=2.5, 
                         cooling_rate=0.008, crystallization_temp=0.3):

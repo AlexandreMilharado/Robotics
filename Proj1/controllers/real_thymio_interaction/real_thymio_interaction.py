@@ -12,6 +12,12 @@ IS_RECURRENT = False
 class PPOThymioController:
     def __init__(self):
         # Load trained PPO model
+        """
+        Initialize the PPOThymioController.
+
+        Loads the trained PPO model (RecurrentPPO or PPO) and initializes the sensor data, motor commands, and control flags.
+        """
+        
         if IS_RECURRENT:
             self.model = RecurrentPPO.load("RPPO.zip", device="cpu")
         else:
@@ -82,6 +88,17 @@ class PPOThymioController:
             await comm_loop()
     
     def ppo_control_loop(self):
+        """
+        PPO control loop for Thymio.
+
+        This loop reads sensor data, runs the PPO model, and sends motor commands to the Thymio.
+        It runs until `self.running` is set to `False`.
+
+        If `IS_RECURRENT` is `True`, the loop uses RecurrentPPO and maintains LSTM states between steps.
+        Otherwise, it uses standard PPO.
+
+        The loop also prints debug information every 20 steps (adjustable with `step_count`).
+        """
         print("PPO controller starting...")
 
         while not self.sensors_ready:

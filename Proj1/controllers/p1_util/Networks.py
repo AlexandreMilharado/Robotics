@@ -16,11 +16,46 @@ COMPLEX_LAYER_SIZE_MERGER = [{"input": 5,"ouput": 5, "n": 0}, {"input": 5,"ouput
 
 class ParentNet(torch.nn.Module, Individual):
     def __init__(self, gen_number, id, weights):        
+        """
+        Initialize the ParentNet
+        
+        Parameters
+        ----------
+        gen_number : int
+            Generation number
+        id : int
+            ID of the individual
+        weights : list
+            Weights of the individual
+        """
         nn.Module.__init__(self)
         Individual.__init__(self, gen_number, id, weights)
     
     @classmethod
     def set_weights(cls, FC, weights, layers_sizes):
+        """
+        Set the weights and biases of a fully connected network.
+
+        This method updates the weights and biases of the given neural network layers
+        based on the provided weights and layer sizes. It iterates through each layer,
+        extracts the corresponding weights and biases, and applies them to the network.
+
+        Parameters
+        ----------
+        FC : torch.nn.Module
+            The fully connected network whose weights and biases are to be set.
+        weights : list
+            A list of weights to be assigned to the network layers.
+        layers_sizes : list of dict
+            A list of dictionaries where each dictionary contains the 'input', 'ouput',
+            and 'n' keys, representing the size and index of each layer.
+
+        Returns
+        -------
+        torch.nn.Module
+            The fully connected network with updated weights and biases.
+        """
+
         with torch.no_grad():
             index = 0
             for layer_size in layers_sizes:
@@ -42,6 +77,21 @@ class ParentNet(torch.nn.Module, Individual):
 
 class SimpleNet(ParentNet):
     def __init__(self, gen_number, id, weights, layers_sizes = SIMPLE_LAYER_SIZE):        
+        """
+        Initialize the SimpleNet
+        
+        Parameters
+        ----------
+        gen_number : int
+            Generation number
+        id : int
+            ID of the individual
+        weights : list
+            Weights of the individual
+        layers_sizes : list of dict
+            A list of dictionaries where each dictionary contains the 'input', 'ouput',
+            and 'n' keys, representing the size and index of each layer.
+        """
         super().__init__(gen_number, id, weights)
         self.weights
         self.layers_sizes = layers_sizes
@@ -55,6 +105,25 @@ class SimpleNet(ParentNet):
         self.FC  = ParentNet.set_weights(self.FC, weights, layers_sizes)
         
     def forward(self, x):
+        """
+        Perform a forward pass through the network.
+
+        This method takes an input tensor, processes it through the fully connected
+        neural network (FC), and returns the result as a list. The input is converted
+        to a tensor of floats before being passed through the network.
+
+        Parameters
+        ----------
+        x : list
+            A list of numerical values representing the input to the network.
+
+        Returns
+        -------
+        list
+            A list of numerical values representing the output of the network after
+            processing the input.
+        """
+
         x = torch.tensor([float(value) for value in x])
         x = self.FC(x)
         return x.detach().numpy().tolist()
@@ -63,6 +132,22 @@ class SimpleNet(ParentNet):
 
 class ComplexNet(ParentNet):
     def __init__(self, gen_number, id, weights, layers_sizes = COMPLEX_LAYER_SIZE_MERGER):        
+        """
+        Initialize the ComplexNet
+
+        Parameters
+        ----------
+        gen_number : int
+            Generation number
+        id : int
+            ID of the individual
+        weights : list
+            Weights of the individual
+        layers_sizes : list of dict
+            A list of dictionaries where each dictionary contains the 'input', 'ouput',
+            and 'n' keys, representing the size and index of each layer.
+        """
+
         super().__init__(gen_number, id, weights)
 
         self.layers_sizes = layers_sizes
@@ -98,22 +183,138 @@ class ComplexNet(ParentNet):
 
 
     def load_weights_black_line(self, black_line_net):
+        """
+        Load and set the weights for the black line neural network.
+
+        This method applies pre-defined optimal weights to the black line network
+        using the ParentNet's set_weights method.
+
+        Parameters
+        ----------
+        black_line_net : torch.nn.Module
+            The neural network for which the weights are being set.
+
+        Returns
+        -------
+        torch.nn.Module
+            The neural network with updated weights.
+        """
+
         return ParentNet.set_weights(black_line_net, SIMPLE_LAYER_BEST_WEIGHTS, SIMPLE_LAYER_SIZE)
 
     def load_weights_obstacles(self, obstacles_net):
+        """
+        Load and set the weights for the obstacles neural network.
+
+        This method applies pre-defined optimal weights to the obstacles network
+        using the ParentNet's set_weights method.
+
+        Parameters
+        ----------
+        obstacles_net : torch.nn.Module
+            The neural network for which the weights are being set.
+
+        Returns
+        -------
+        torch.nn.Module
+            The neural network with updated weights.
+        """
         return ParentNet.set_weights(obstacles_net, SIMPLE_LAYER_BEST_WEIGHTS_OBS, SIMPLE_LAYER_SIZE_OBS)
     
     def get_elements(self, list, init, end):
+        """
+        Get a subset of a list between two indices.
+
+        Parameters
+        ----------
+        list : list
+            The list from which to extract the elements.
+        init : int
+            The starting index of the subset.
+        end : int
+            The ending index of the subset.
+
+        Returns
+        -------
+        list
+            A list containing the elements in the range [init, end) of the original list.
+        """
         return list[init:end]
     
     def get_elements_to_last(self, list, init):
+        """
+        Get a subset of a list from a given index to the end of the list.
+
+        Parameters
+        ----------
+        list : list
+            The list from which to extract the elements.
+        init : int
+            The starting index of the subset.
+
+        Returns
+        -------
+        list
+            A list containing the elements in the range [init, end] of the original list.
+        """
         return list[init:]
     
     def get_elements_from_begin(self, list, end):
+        """
+        Get a subset of a list from the beginning to a given index.
+
+        Parameters
+        ----------
+        list : list
+            The list from which to extract the elements.
+        end : int
+            The ending index of the subset.
+
+        Returns
+        -------
+        list
+            A list containing the elements in the range [0, end) of the original list.
+        """
         return list[:end]
 
     def set_weights(self, weights):
+        """
+        Set the weights and biases of the router network.
+
+        This method updates the weights and biases of the router network based on the given weights.
+
+        Parameters
+        ----------
+        weights : list
+            A list of weights to be assigned to the router network layers.
+
+        Returns
+        -------
+        None
+        """
         def get_connections(layer_size):
+            """
+            Retrieve connection weights for a given layer size.
+
+            This function extracts the connection weights from the weights list for a specified 
+            layer based on its input and output sizes. It constructs a matrix of weights, where 
+            each row represents the weights connecting the inputs to a specific output. It uses 
+            a counter to keep track of the position in the weights list and increments it for 
+            each weight value extracted.
+
+            Parameters
+            ----------
+            layer_size : dict
+                A dictionary containing the 'input' and 'ouput' keys, representing the size of 
+                the layer's input and output, respectively.
+
+            Returns
+            -------
+            list
+                A list of lists representing the weight matrix for the specified layer, where 
+                each inner list corresponds to the weights connecting inputs to a single output.
+            """
+
             connections = []
             for _ in range(layer_size["ouput"]):
                 row = []
@@ -126,6 +327,24 @@ class ComplexNet(ParentNet):
             return connections
         
         def get_bias(layer_size):
+            """
+            Retrieve the bias values for a given layer size.
+
+            This function extracts the bias values from the weights list for a specified 
+            layer based on its output size. It uses a counter to keep track of the position 
+            in the weights list and increments it for each bias value extracted.
+
+            Parameters
+            ----------
+            layer_size : dict
+                A dictionary containing the 'ouput' key, representing the size of the layer's output.
+
+            Returns
+            -------
+            list
+                A list containing the bias values for the specified layer.
+            """
+
             bias = []
             for _ in range(layer_size["ouput"]):
                 # temp.append(0)
@@ -148,6 +367,24 @@ class ComplexNet(ParentNet):
             
             # self.weights = temp
     def forward(self, x):
+        """
+        Perform a forward pass through the network.
+
+        This method takes an input tensor, processes it through the fully connected
+        neural network (FC), and returns the result as a list. The input is converted
+        to a tensor of floats before being passed through the network.
+
+        Parameters
+        ----------
+        x : list
+            A list of numerical values representing the input to the network.
+
+        Returns
+        -------
+        list
+            A list of numerical values representing the output of the network after
+            processing the input.
+        """
         normalised = [float(value > 0) for value in x[:3]] 
         normalised += x[3:]
         idx = torch.argmax(self.router(torch.tensor(normalised))).item()

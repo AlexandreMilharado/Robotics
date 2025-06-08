@@ -82,9 +82,43 @@ class Individual:
 
 # Getters
     def euclidean(self, p1, p2):
+        """
+        Calculates the Euclidean distance between two points.
+
+        Parameters
+        ----------
+        p1 : tuple
+            The first point.
+        p2 : tuple
+            The second point.
+
+        Returns
+        -------
+        float
+            The Euclidean distance between the two points.
+        """
         return sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
     
     def distance_from_all(self, population):
+        """
+        Calculates the average path distance from this individual to all other individuals in the population.
+
+        This method computes the average Euclidean distance between the path of the current individual and 
+        the paths of all other individuals in the given population. It uses the `path_distance` helper function 
+        to calculate the path distance between two paths, which is the sum of Euclidean distances between 
+        corresponding points in the paths, divided by the length of the path.
+
+        Parameters
+        ----------
+        population : list
+            A list of individuals in the population.
+
+        Returns
+        -------
+        float
+            The average path distance from this individual to all other individuals in the population.
+        """
+
         def path_distance(path1, path2):
             return sum(self.euclidean(p1, p2) for p1, p2 in zip(path1, path2)) / len(path1) if len(path1) != 0 else 0
         
@@ -97,6 +131,27 @@ class Individual:
 
     #     return diff / (9.53 * len(self.path)) if len(self.path) != 0 else 0
     def position_diff(self, threshold_dispersion=0.05, ratio_threshold=2.0):
+        """
+        Determines if the individual is exhibiting a circling behavior based on its path dispersion.
+
+        This function analyzes the path taken by the individual and checks if there is a significant 
+        reduction in movement dispersion, suggesting a transition from broad movement to being stuck 
+        in a tight loop, which is indicative of circling behavior.
+
+        Parameters
+        ----------
+        threshold_dispersion : float, optional
+            The minimum dispersion in the early path to consider it "broad" (default is 0.05).
+        ratio_threshold : float, optional
+            The factor by which the early path dispersion must exceed the late path dispersion to 
+            classify the behavior as circling (default is 2.0).
+
+        Returns
+        -------
+        bool
+            True if the individual is circling, False otherwise.
+        """
+
         if len(self.path) < 10:
             return False  # Not enough data
 
@@ -138,6 +193,14 @@ class Individual:
         return diff / (len(self.weights) * (MAX_VALUE_WEIGHT - MIN_VALUE_WEIGHT))
     
     def to_list(self):
+        """
+        Convert the individual to a list of its attributes.
+
+        Returns
+        -------
+        list
+            A list containing the individual's generation number, id, fitness, weights, diversity, and line percentage.
+        """
         return [self.gen_number,
                 self.id,
                 self.fitness,
@@ -148,18 +211,63 @@ class Individual:
 
     @classmethod
     def sort_individuals(cls, individuals):
+        """
+        Sorts a list of individuals by their fitness in descending order.
+
+        Parameters
+        ----------
+        individuals : list
+            A list of individuals to be sorted.
+
+        Returns
+        -------
+        list
+            The sorted list of individuals.
+        """
         return sorted(individuals,
                     key=lambda individual: individual.fitness,
                     reverse=True)
     
     @classmethod
     def sort_individuals_by_id(cls, individuals):
+        """
+        Sorts a list of individuals by their ID in ascending order.
+
+        Parameters
+        ----------
+        individuals : list
+            A list of individuals to be sorted.
+
+        Returns
+        -------
+        list
+            The sorted list of individuals.
+        """
         return sorted(individuals,
                     key=lambda individual: individual.id,
                     reverse=False)
     
     @classmethod
     def sort_individuals_by_fitness_list(cls, individuals, fitness_l):
+        """
+        Sorts a list of individuals based on their fitness scores in descending order.
+
+        This method takes a list of individuals and a corresponding list of fitness scores,
+        sorts the fitness scores in descending order, and reorders the individuals accordingly.
+
+        Parameters
+        ----------
+        individuals : list
+            A list of individuals to be sorted.
+        fitness_l : list
+            A list of tuples where each tuple contains the index of the individual and its fitness score.
+
+        Returns
+        -------
+        list
+            A list of individuals sorted by their fitness scores in descending order.
+        """
+
         sorted_fitness = sorted(fitness_l,
                                 key=lambda fitness: fitness[1],
                                 reverse=True)
